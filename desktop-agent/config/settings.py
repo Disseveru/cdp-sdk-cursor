@@ -42,6 +42,12 @@ class AgentSettings:
     anthropic_api_key: str | None
     borrower_cache_dir: Path
     enabled_protocols: tuple[str, ...]
+    watch_hf_threshold: float
+    slippage_bps: int
+    simulate_before_execute: bool
+    morpho_flash_liquidator_address: str | None
+    oneinch_api_key: str | None
+    swap_quote_provider: str
     agent_name: str
     smart_account_address: str | None
 
@@ -102,7 +108,15 @@ def load_settings(network_override: str | None = None) -> AgentSettings:
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
         borrower_cache_dir=ROOT_DIR / "data" / "borrowers",
-        enabled_protocols=_parse_protocols(os.getenv("AGENT_PROTOCOLS", "aave-v3,moonwell,compound-v3")),
+        enabled_protocols=_parse_protocols(
+            os.getenv("AGENT_PROTOCOLS", "aave-v3,moonwell,compound-v3,morpho")
+        ),
+        watch_hf_threshold=float(os.getenv("WATCH_HF_THRESHOLD", "1.05")),
+        slippage_bps=int(os.getenv("SLIPPAGE_BPS", "50")),
+        simulate_before_execute=os.getenv("SIMULATE_BEFORE_EXECUTE", "true").lower() == "true",
+        morpho_flash_liquidator_address=os.getenv("MORPHO_FLASH_LIQUIDATOR_ADDRESS"),
+        oneinch_api_key=os.getenv("ONEINCH_API_KEY"),
+        swap_quote_provider=os.getenv("SWAP_QUOTE_PROVIDER", "auto"),
         agent_name=os.getenv("AGENT_NAME", "cdp-flash-liquidator"),
         smart_account_address=os.getenv("SMART_ACCOUNT_ADDRESS") or os.getenv("CDP_SMART_ACCOUNT_ADDRESS"),
     )
