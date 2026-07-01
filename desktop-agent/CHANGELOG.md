@@ -1,5 +1,15 @@
 # Desktop Agent Changelog
 
+## [0.4.0] - 2026-07-01
+
+### Features
+
+- **MorphoFlashArbitrage** — zero-fee Morpho flash loan + two-hop DEX arbitrage; profit sent to owner EOA
+- Deployed on Base: `0x775e355B3b41882B7A30986cf763Cd06FE0a5779`
+- `scripts/run_arbitrage.py` — scan + execute with simulation gate
+- `scripts/arbitrage_monitor.py` — continuous monitor, auto-executes when `eth_call` passes
+- Cross-venue routing: Kyber ↔ Uniswap V3 fee tiers
+
 ## [0.3.0] - 2026-07-01
 
 ### Features
