@@ -1,5 +1,20 @@
 # Desktop Agent Changelog
 
+## [0.3.0] - 2026-07-01
+
+### Features
+
+- **Real execution mode** — `EXECUTE_ENABLED=true` with deployed Base mainnet contracts (no placeholders)
+- **MorphoFlashLiquidator deployed** — `0x263B4C3670101F1dF25D683427e0f183C1332Ab4` owned by CDP Smart Account
+- **Execution history** — persistent `data/executions.json` + dashboard history panel + `/api/executions`
+- **`scripts/run_liquidation.py`** — one-shot scan-and-execute for immediate liquidation attempts
+- **Aggressive rules engine** — executes when profit clears `MIN_PROFIT_USD` (risk flags are advisory)
+
+### Fixes
+
+- `ExecutionResult.to_dict()` serializes targets correctly for dashboard/API
+- Test fixtures use real deployed contract addresses (not placeholder `0x1111…`)
+
 ## [0.2.0] - 2026-06-29
 
 ### Features
