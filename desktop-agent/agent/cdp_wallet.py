@@ -85,12 +85,17 @@ class CdpWalletManager:
         to: str,
         data: str,
         value: str = "0",
+        paymaster_context: dict | None = None,
     ):
         """Execute a contract call via CDP Smart Account user operation with paymaster."""
         call = EncodedCall(to=to, data=data, value=value)
-        return await self.bundle.network_account.send_user_operation(
+        # NetworkScopedEvmSmartAccount does not forward paymaster_context; use the
+        # underlying smart account so gas-bid hints reach the CDP paymaster.
+        return await self.bundle.smart_account.send_user_operation(
             calls=[call],
+            network=self.settings.network,
             paymaster_url=self.bundle.paymaster_url,
+            paymaster_context=paymaster_context,
         )
 
     async def close(self) -> None:

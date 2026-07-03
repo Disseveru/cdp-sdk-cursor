@@ -47,9 +47,24 @@ class AgentSettings:
     simulate_before_execute: bool
     morpho_flash_liquidator_address: str | None
     oneinch_api_key: str | None
+    odos_api_key: str | None
     swap_quote_provider: str
     agent_name: str
     smart_account_address: str | None
+    moonwell_flash_liquidator_address: str | None
+    moonwell_oev_flash_liquidator_address: str | None
+    liquidation_intel_enabled: bool
+    agentic_wallet_enabled: bool
+    dynamic_profit_enabled: bool
+    min_profit_floor_usd: float
+    min_profit_volatile_usd: float
+    volatility_mode: bool
+    oracle_triggered_scan: bool
+    flashblocks_enabled: bool
+    flashblocks_ws_url: str | None
+    macro_calendar_enabled: bool
+    priority_fee_percentile: int
+    fast_scan_interval_seconds: float
 
 
 BASE_MAINNET = {
@@ -116,9 +131,24 @@ def load_settings(network_override: str | None = None) -> AgentSettings:
         simulate_before_execute=os.getenv("SIMULATE_BEFORE_EXECUTE", "true").lower() == "true",
         morpho_flash_liquidator_address=os.getenv("MORPHO_FLASH_LIQUIDATOR_ADDRESS"),
         oneinch_api_key=os.getenv("ONEINCH_API_KEY"),
+        odos_api_key=os.getenv("ODOS_API_KEY"),
         swap_quote_provider=os.getenv("SWAP_QUOTE_PROVIDER", "auto"),
         agent_name=os.getenv("AGENT_NAME", "cdp-flash-liquidator"),
         smart_account_address=os.getenv("SMART_ACCOUNT_ADDRESS") or os.getenv("CDP_SMART_ACCOUNT_ADDRESS"),
+        moonwell_flash_liquidator_address=os.getenv("MOONWELL_FLASH_LIQUIDATOR_ADDRESS"),
+        moonwell_oev_flash_liquidator_address=os.getenv("MOONWELL_OEV_FLASH_LIQUIDATOR_ADDRESS"),
+        liquidation_intel_enabled=os.getenv("LIQUIDATION_INTEL_ENABLED", "true").lower() == "true",
+        agentic_wallet_enabled=os.getenv("AGENTIC_WALLET_ENABLED", "false").lower() == "true",
+        dynamic_profit_enabled=os.getenv("DYNAMIC_PROFIT_ENABLED", "true").lower() == "true",
+        min_profit_floor_usd=float(os.getenv("MIN_PROFIT_FLOOR_USD", "1.0")),
+        min_profit_volatile_usd=float(os.getenv("MIN_PROFIT_VOLATILE_USD", "1.5")),
+        volatility_mode=os.getenv("VOLATILITY_MODE", "false").lower() == "true",
+        oracle_triggered_scan=os.getenv("ORACLE_TRIGGERED_SCAN", "true").lower() == "true",
+        flashblocks_enabled=os.getenv("FLASHBLOCKS_ENABLED", "true").lower() == "true",
+        flashblocks_ws_url=os.getenv("FLASHBLOCKS_WS_URL"),
+        macro_calendar_enabled=os.getenv("MACRO_CALENDAR_ENABLED", "true").lower() == "true",
+        priority_fee_percentile=int(os.getenv("PRIORITY_FEE_PERCENTILE", "95")),
+        fast_scan_interval_seconds=float(os.getenv("FAST_SCAN_INTERVAL_SECONDS", "0.5")),
     )
 
 

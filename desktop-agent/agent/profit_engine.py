@@ -23,6 +23,16 @@ def morpho_liquidation_incentive_factor(lltv_wad: int) -> float:
     return min(MAX_LIF, 1.0 / denominator)
 
 
+def resolve_swap_fee(collateral_symbol: str, debt_symbol: str) -> int:
+    """Pick Uniswap V3 fee tier from pair volatility (500 = 0.05%, 3000 = 0.3%)."""
+    stables = {"USDC", "USDBC", "DAI", "USDT", "EURC", "GHO"}
+    if collateral_symbol.upper() in stables and debt_symbol.upper() in stables:
+        return 100
+    if collateral_symbol.upper() in stables or debt_symbol.upper() in stables:
+        return 500
+    return 3000
+
+
 def urgency_score(health_factor: float) -> float:
     """Lower HF = higher urgency. Used to prioritize execution queue."""
     if health_factor <= 0:
@@ -77,6 +87,7 @@ async def estimate_profit_with_swap_quote(
         collateral_amount,
         chain_id=settings.chain_id,
         oneinch_api_key=settings.oneinch_api_key,
+        odos_api_key=settings.odos_api_key,
         provider=settings.swap_quote_provider,
     )
     if quote is None:

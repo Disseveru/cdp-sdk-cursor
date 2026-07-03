@@ -53,6 +53,10 @@ class LiquidationTarget:
     estimated_collateral_amount: int = 0
     debt_decimals: int = 18
     collateral_decimals: int = 18
+    mtoken_borrowed: str = ""
+    mtoken_collateral: str = ""
+    use_oev_path: bool = False
+    oev_wrapper: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
