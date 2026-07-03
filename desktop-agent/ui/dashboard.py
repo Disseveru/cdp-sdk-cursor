@@ -61,7 +61,9 @@ async def executions() -> JSONResponse:
     from agent.execution_history import ExecutionHistory
 
     history = ExecutionHistory()
-    return JSONResponse({"records": history.load(), "summary": history.summary()})
+    records = history.load()
+    summary = history.summary_from_records(records)
+    return JSONResponse({"records": records, "summary": summary})
 
 
 DASHBOARD_HTML = """<!DOCTYPE html>
@@ -219,13 +221,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       (data.execution_history || []).forEach(e => {
         const tr = document.createElement('tr');
         const link = e.tx_hash ? e.tx_hash.slice(0,14) + '…' : (e.user_op_hash ? e.user_op_hash.slice(0,14) + '…' : '—');
-        tr.innerHTML = `
-          <td>${(e.timestamp || '').slice(11,19)}</td>
-          <td>${e.protocol_name || e.protocol_id}</td>
-          <td>${(e.user || '').slice(0,10)}…</td>
-          <td>${e.status}</td>
-          <td class="profit">$${Number(e.estimated_profit_usd || 0).toFixed(2)}</td>
-          <td>${link}</td>`;
+        const cells = [
+          (e.timestamp || '').slice(11, 19),
+          e.protocol_name || e.protocol_id,
+          (e.user || '').slice(0, 10) + '…',
+          e.status,
+          '$' + Number(e.estimated_profit_usd || 0).toFixed(2),
+          link,
+        ];
+        cells.forEach((value, idx) => {
+          const td = document.createElement('td');
+          td.textContent = value;
+          if (idx === 4) td.className = 'profit';
+          tr.appendChild(td);
+        });
         ebody.appendChild(tr);
       });
       const wtbody = document.getElementById('watch_targets');

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import fcntl
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,30 +57,64 @@ class ExecutionHistory:
     def __init__(self, path: Path | None = None, max_records: int = 500) -> None:
         self.path = path or DEFAULT_HISTORY_PATH
         self.max_records = max_records
+        self._lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+
+    def _acquire_lock(self) -> int:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return fd
+
+    @staticmethod
+    def _release_lock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
     def load(self) -> list[dict[str, Any]]:
-        if not self.path.exists():
-            return []
+        fd = self._acquire_lock()
         try:
-            data = json.loads(self.path.read_text())
-            return data if isinstance(data, list) else []
-        except (json.JSONDecodeError, OSError):
-            return []
+            if not self.path.exists():
+                return []
+            try:
+                data = json.loads(self.path.read_text())
+                return data if isinstance(data, list) else []
+            except (json.JSONDecodeError, OSError):
+                return []
+        finally:
+            self._release_lock(fd)
+
+    def _write_records(self, records: list[dict[str, Any]]) -> None:
+        payload = json.dumps(records, indent=2)
+        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp_path.write_text(payload)
+        tmp_path.replace(self.path)
 
     def append(self, record: ExecutionRecord) -> dict[str, Any]:
-        records = self.load()
-        entry = record.to_dict()
-        records.insert(0, entry)
-        records = records[: self.max_records]
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(records, indent=2))
-        return entry
+        fd = self._acquire_lock()
+        try:
+            records = []
+            if self.path.exists():
+                try:
+                    data = json.loads(self.path.read_text())
+                    records = data if isinstance(data, list) else []
+                except (json.JSONDecodeError, OSError):
+                    records = []
+            entry = record.to_dict()
+            records.insert(0, entry)
+            records = records[: self.max_records]
+            self._write_records(records)
+            return entry
+        finally:
+            self._release_lock(fd)
 
-    def summary(self) -> dict[str, Any]:
-        records = self.load()
+    @staticmethod
+    def summary_from_records(records: list[dict[str, Any]]) -> dict[str, Any]:
         successful = [r for r in records if r.get("status") in ("complete", "success", "confirmed")]
         return {
             "total": len(records),
             "successful": len(successful),
             "last": records[0] if records else None,
         }
+
+    def summary(self) -> dict[str, Any]:
+        return self.summary_from_records(self.load())
