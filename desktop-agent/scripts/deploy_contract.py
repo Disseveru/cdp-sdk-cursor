@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Deploy FlashLiquidator (Aave) or MorphoFlashLiquidator to Base mainnet.
+"""Deploy FlashLiquidator (Aave), MorphoFlashLiquidator, or Moonwell liquidators to Base mainnet.
 
 Usage:
-  python scripts/deploy_contract.py          # Aave FlashLiquidator
-  python scripts/deploy_contract.py --morpho # Morpho FlashLiquidator
+  python scripts/deploy_contract.py                    # Aave FlashLiquidator
+  python scripts/deploy_contract.py --morpho           # Morpho FlashLiquidator
+  python scripts/deploy_contract.py --moonwell         # Moonwell flash liquidator
+  python scripts/deploy_contract.py --moonwell-oev     # Moonwell OEV flash liquidator
 
 Primary path: fund `PRIVATE_KEY_2` (or `DEPLOYER_PRIVATE_KEY`) with a small ETH
 balance on Base, then deploy via raw transaction.
@@ -45,6 +47,16 @@ DEPLOY_TARGETS = {
         "artifact": "MorphoFlashLiquidator",
         "env_key": "MORPHO_FLASH_LIQUIDATOR_ADDRESS",
     },
+    "moonwell": {
+        "contract": "MoonwellFlashLiquidator.sol",
+        "artifact": "MoonwellFlashLiquidator",
+        "env_key": "MOONWELL_FLASH_LIQUIDATOR_ADDRESS",
+    },
+    "moonwell-oev": {
+        "contract": "MoonwellOEVFlashLiquidator.sol",
+        "artifact": "MoonwellOEVFlashLiquidator",
+        "env_key": "MOONWELL_OEV_FLASH_LIQUIDATOR_ADDRESS",
+    },
 }
 
 
@@ -84,6 +96,13 @@ def deploy_with_funded_eoa(settings, artifact: dict, owner: str, target: str) ->
     if target == "morpho":
         constructor_args = [
             Web3.to_checksum_address(MORPHO_BLUE_BASE),
+            Web3.to_checksum_address(UNISWAP_V3_SWAP_ROUTER_BASE),
+            Web3.to_checksum_address(owner),
+        ]
+    elif target in ("moonwell", "moonwell-oev"):
+        addresses = get_aave_addresses(settings.network)
+        constructor_args = [
+            Web3.to_checksum_address(addresses["pool_addresses_provider"]),
             Web3.to_checksum_address(UNISWAP_V3_SWAP_ROUTER_BASE),
             Web3.to_checksum_address(owner),
         ]
@@ -160,7 +179,17 @@ async def deploy(network: str | None = None, target: str = "aave") -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deploy liquidation contracts")
     parser.add_argument("--network", choices=["base", "base-sepolia"], default=None)
-    parser.add_argument("--morpho", action="store_true", help="Deploy MorphoFlashLiquidator")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--morpho", action="store_true", help="Deploy MorphoFlashLiquidator")
+    group.add_argument("--moonwell", action="store_true", help="Deploy MoonwellFlashLiquidator")
+    group.add_argument("--moonwell-oev", dest="moonwell_oev", action="store_true", help="Deploy MoonwellOEVFlashLiquidator")
     args = parser.parse_args()
-    target = "morpho" if args.morpho else "aave"
+    if args.moonwell:
+        target = "moonwell"
+    elif args.moonwell_oev:
+        target = "moonwell-oev"
+    elif args.morpho:
+        target = "morpho"
+    else:
+        target = "aave"
     asyncio.run(deploy(args.network, target))
