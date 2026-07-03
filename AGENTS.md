@@ -1,5 +1,45 @@
 # AGENTS.md
 
+## User context (read first)
+
+The repository owner **does not know how to code**. Treat them as a non-technical
+stakeholder and handle all technical work yourself.
+
+- **Do all coding** — implement features, fix bugs, write tests, commit, push, and
+  open or update PRs. Do not ask them to edit source files or run terminal commands.
+- **No hand-offs** — avoid instructions like "add this to `.env`" or "run `pytest`".
+  Do it in the cloud environment unless a secret or portal action is impossible for
+  you (e.g. creating a CDP API key in their account).
+- **Plain-language updates** — report outcomes simply: what was deployed, which
+  addresses/contracts, whether execution is live, and what happens next without jargon.
+- **Be proactive** — if something is broken, incomplete, or reverted, fix and merge it
+  without waiting for them to diagnose the issue.
+- **Secrets** — CDP credentials are injected as cloud secrets when available; configure
+  `.env` from `.env.example` yourself when running `desktop-agent/`.
+
+### `desktop-agent/` (liquidation + arbitrage bot)
+
+When the user asks about liquidations, arbitrage, or "completing the subproject":
+
+| Task | Agent action |
+|------|----------------|
+| Setup | `pip install -r requirements.txt` in `desktop-agent/`, copy `.env.example` → `.env` |
+| Tests | `pytest -v` (install `requirements-dev.txt` first) |
+| Live agent | `python agent_runner.py` (dashboard on port 8787) |
+| One-shot liquidation | `python scripts/run_liquidation.py` |
+| Arbitrage monitor | `python scripts/arbitrage_monitor.py` |
+
+Deployed Base mainnet contracts (see `desktop-agent/.env.example` for current addresses):
+
+- Aave `FlashLiquidator`, Morpho `MorphoFlashLiquidator`, Morpho `MorphoFlashArbitrage`
+- CDP Smart Account executor — execution uses paymaster gas sponsorship
+
+No liquidatable positions on Base is normal market conditions, not a configuration bug.
+When `EXECUTE_ENABLED=true` and contracts are deployed, the agent auto-submits when
+profit clears `MIN_PROFIT_USD` after simulation.
+
+---
+
 ## Cursor Cloud specific instructions
 
 This is the Coinbase Developer Platform (CDP) SDK monorepo: four independent client
