@@ -85,12 +85,14 @@ class CdpWalletManager:
         to: str,
         data: str,
         value: str = "0",
+        paymaster_context: dict | None = None,
     ):
         """Execute a contract call via CDP Smart Account user operation with paymaster."""
         call = EncodedCall(to=to, data=data, value=value)
         return await self.bundle.network_account.send_user_operation(
             calls=[call],
             paymaster_url=self.bundle.paymaster_url,
+            paymaster_context=paymaster_context,
         )
 
     async def close(self) -> None:

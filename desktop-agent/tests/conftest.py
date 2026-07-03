@@ -54,6 +54,18 @@ def settings() -> AgentSettings:
         swap_quote_provider="kyber",
         agent_name="test-agent",
         smart_account_address=TEST_USER,
+        moonwell_flash_liquidator_address=None,
+        dynamic_profit_enabled=True,
+        min_profit_floor_usd=1.0,
+        min_profit_volatile_usd=1.5,
+        volatility_mode=False,
+        oracle_triggered_scan=True,
+        flashblocks_enabled=False,
+        flashblocks_ws_url=None,
+        macro_calendar_enabled=True,
+        priority_fee_percentile=95,
+        fast_scan_interval_seconds=0.5,
+        odos_api_key=None,
     )
 
 

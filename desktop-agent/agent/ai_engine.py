@@ -29,7 +29,7 @@ Given liquidation candidates, respond ONLY with JSON:
   "recommended_gas_strategy": "cdp_paymaster" | "self_funded"
 }
 
-Only recommend "execute" for targets where executable=true (Aave V3 and Morpho Blue when contracts deployed).
+Only recommend "execute" for targets where executable=true (Aave V3, Morpho Blue, and Moonwell when contracts deployed).
 """
 
 
@@ -61,7 +61,7 @@ class LiquidationAIEngine:
     def __init__(self, settings: AgentSettings) -> None:
         self.settings = settings
 
-    async def decide(self, targets: list[LiquidationTarget]) -> AgentDecision:
+    async def decide(self, targets: list[LiquidationTarget], *, macro_active: bool = False) -> AgentDecision:
         if not targets:
             return AgentDecision(
                 action="watch",
@@ -83,13 +83,20 @@ class LiquidationAIEngine:
             if llm_decision:
                 return llm_decision
 
-        return self._rules_decide(targets)
+        return self._rules_decide(targets, macro_active=macro_active)
 
-    def _rules_decide(self, targets: list[LiquidationTarget]) -> AgentDecision:
+    def _rules_decide(self, targets: list[LiquidationTarget], *, macro_active: bool = False) -> AgentDecision:
+        from agent.dynamic_profit import effective_min_profit_usd
         from agent.profit_engine import apply_urgency
 
         ranked = apply_urgency(targets)
-        executable = [t for t in ranked if t.executable]
+        executable = [
+            t
+            for t in ranked
+            if t.executable
+            and t.estimated_profit_usd
+            >= effective_min_profit_usd(self.settings, t.health_factor, macro_active=macro_active)
+        ]
         best = executable[0] if executable else ranked[0]
         risk_flags: list[str] = []
 
@@ -112,7 +119,8 @@ class LiquidationAIEngine:
             risk_flags.append("health_factor_near_boundary")
         if best.collateral_symbol == best.debt_symbol:
             risk_flags.append("same_asset_pair_swap_unnecessary")
-        if best.estimated_profit_usd < self.settings.min_profit_usd * 1.5:
+        min_profit = effective_min_profit_usd(self.settings, best.health_factor, macro_active=macro_active)
+        if best.estimated_profit_usd < min_profit * 1.5:
             risk_flags.append("thin_margin")
 
         # Execute when profit clears threshold; risk flags are advisory only.

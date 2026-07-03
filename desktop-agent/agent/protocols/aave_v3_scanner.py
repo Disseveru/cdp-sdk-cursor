@@ -12,8 +12,9 @@ import aiohttp
 from web3 import Web3
 from web3.contract import Contract
 
-from agent.models import LiquidationTarget
-from agent.profit_engine import estimate_profit_with_swap_quote
+from agent.dynamic_profit import effective_min_profit_usd
+from agent.models import LiquidationTarget, WatchTarget, WatchTarget
+from agent.profit_engine import estimate_profit_with_swap_quote, resolve_swap_fee
 from agent.protocols.aave_v3_base import (
     AAVE_BASE_SUBGRAPH,
     ERC20_ABI,
@@ -170,7 +171,57 @@ class AaveV3Scanner(ProtocolScanner):
         targets.sort(key=lambda t: t.estimated_profit_usd, reverse=True)
         return targets
 
-    async def _evaluate_user(self, user: str) -> LiquidationTarget | None:
+    async def fetch_watch_positions(self, limit: int = 50) -> list[WatchTarget]:
+        await self._load_reserve_meta()
+        borrowers = await self.discover_borrowers(limit=limit * 4)
+        watches: list[WatchTarget] = []
+        for user in borrowers:
+            try:
+                (
+                    total_collateral_base,
+                    total_debt_base,
+                    _a,
+                    _b,
+                    _c,
+                    health_factor_raw,
+                ) = self.pool.functions.getUserAccountData(user).call()
+            except Exception:
+                continue
+            if total_debt_base == 0:
+                continue
+            hf = health_factor_raw / HF_SCALE
+            if hf < 1.0 or hf >= self.settings.watch_hf_threshold:
+                continue
+            debt_usd = total_debt_base / 1e8
+            coll_usd = total_collateral_base / 1e8
+            pair = await self._best_liquidation_pair(user)
+            if pair is None:
+                continue
+            collateral_asset, debt_asset, _d, _dec, _bonus = pair
+            coll_sym = self._reserve_meta.get(collateral_asset.lower(), {}).get("symbol", "?")
+            debt_sym = self._reserve_meta.get(debt_asset.lower(), {}).get("symbol", "?")
+            watches.append(
+                WatchTarget(
+                    protocol_id=self.protocol_id,
+                    protocol_name=self.display_name,
+                    user=user,
+                    health_factor=hf,
+                    collateral_symbol=coll_sym,
+                    debt_symbol=debt_sym,
+                    debt_usd=debt_usd,
+                    collateral_usd=coll_usd,
+                    price_to_liquidation_pct=max(0.0, (hf - 1.0) * 100),
+                )
+            )
+            if len(watches) >= limit:
+                break
+        watches.sort(key=lambda w: w.health_factor)
+        return watches
+
+    async def evaluate_user(self, user: str, *, macro_active: bool = False) -> LiquidationTarget | None:
+        return await self._evaluate_user(user, macro_active=macro_active)
+
+    async def _evaluate_user(self, user: str, *, macro_active: bool = False) -> LiquidationTarget | None:
         try:
             (
                 total_collateral_base,
@@ -225,9 +276,13 @@ class AaveV3Scanner(ProtocolScanner):
             flash_fee_bps=FLASH_LOAN_PREMIUM_BPS,
         )
 
-        if estimated_profit < self.settings.min_profit_usd:
+        if estimated_profit < effective_min_profit_usd(
+            self.settings, health_factor, macro_active=macro_active
+        ):
             return None
 
+        coll_sym = collateral_meta.get("symbol", "UNK")
+        debt_sym = debt_meta.get("symbol", "UNK")
         return LiquidationTarget(
             protocol_id=self.protocol_id,
             protocol_name=self.display_name,
@@ -236,13 +291,13 @@ class AaveV3Scanner(ProtocolScanner):
             total_collateral_usd=collateral_usd,
             total_debt_usd=debt_usd,
             collateral_asset=collateral_asset,
-            collateral_symbol=collateral_meta.get("symbol", "UNK"),
+            collateral_symbol=coll_sym,
             debt_asset=debt_asset,
-            debt_symbol=debt_meta.get("symbol", "UNK"),
+            debt_symbol=debt_sym,
             debt_to_cover=debt_to_cover,
             debt_to_cover_human=debt_to_cover / (10**debt_decimals),
             estimated_profit_usd=estimated_profit,
-            swap_fee=500 if collateral_asset.lower() != debt_asset.lower() else 0,
+            swap_fee=resolve_swap_fee(coll_sym, debt_sym) if collateral_asset.lower() != debt_asset.lower() else 0,
             flash_amount=flash_amount,
             liquidation_bonus_bps=bonus_bps,
             executable=self.executable and bool(self.settings.flash_liquidator_address),
