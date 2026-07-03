@@ -23,6 +23,11 @@ _state: dict[str, Any] = {
     "watch_targets": [],
     "decision": None,
     "last_execution": None,
+    "execution_history": [],
+    "execution_summary": {"total": 0, "successful": 0, "last": None},
+    "execute_enabled": False,
+    "flash_liquidator": None,
+    "morpho_liquidator": None,
     "logs": [],
     "scan_count": 0,
 }
@@ -49,6 +54,16 @@ async def status() -> JSONResponse:
 @app.get("/api/health")
 async def health() -> JSONResponse:
     return JSONResponse({"ok": True, "agent_status": _state["status"]})
+
+
+@app.get("/api/executions")
+async def executions() -> JSONResponse:
+    from agent.execution_history import ExecutionHistory
+
+    history = ExecutionHistory()
+    records = history.load()
+    summary = history.summary_from_records(records)
+    return JSONResponse({"records": records, "summary": summary})
 
 
 DASHBOARD_HTML = """<!DOCTYPE html>
@@ -115,8 +130,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="meta">
         <div><label>Network</label><span id="network">—</span></div>
         <div><label>Smart Account</label><span id="smart_account">—</span></div>
-        <div><label>Scans</label><span id="scan_count">0</span></div>
         <div><label>Protocols</label><span id="protocols">—</span></div>
+        <div><label>Execution</label><span id="execute_enabled">—</span></div>
+        <div><label>Contracts</label><span id="contracts">—</span></div>
+        <div><label>Executions</label><span id="exec_summary">0</span></div>
+        <div><label>Scans</label><span id="scan_count">0</span></div>
       </div>
     </section>
     <section class="panel">
@@ -126,6 +144,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <section class="panel">
       <h2>Last Execution</h2>
       <pre id="execution">None</pre>
+    </section>
+    <section class="panel full">
+      <h2>Execution History</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Protocol</th><th>User</th><th>Status</th><th>Profit Est.</th><th>UserOp / Tx</th>
+          </tr>
+        </thead>
+        <tbody id="execution_history"></tbody>
+      </table>
     </section>
     <section class="panel full">
       <h2>Watch List (HF 1.0–1.05)</h2>
@@ -161,8 +190,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('status').textContent = data.status;
       document.getElementById('network').textContent = data.network || '—';
       document.getElementById('smart_account').textContent = data.smart_account || '—';
-      document.getElementById('scan_count').textContent = data.scan_count || 0;
       document.getElementById('protocols').textContent = (data.enabled_protocols || []).join(', ') || '—';
+      document.getElementById('scan_count').textContent = data.scan_count || 0;
+      document.getElementById('execute_enabled').textContent = data.execute_enabled ? 'LIVE' : 'scan-only';
+      document.getElementById('contracts').textContent = [
+        data.flash_liquidator ? 'Aave:' + data.flash_liquidator.slice(0,8) : null,
+        data.morpho_liquidator ? 'Morpho:' + data.morpho_liquidator.slice(0,8) : null
+      ].filter(Boolean).join(' ') || '—';
+      const summary = data.execution_summary || {};
+      document.getElementById('exec_summary').textContent = `${summary.successful || 0}/${summary.total || 0} ok`;
       document.getElementById('decision').textContent = JSON.stringify(data.decision, null, 2);
       document.getElementById('execution').textContent = JSON.stringify(data.last_execution, null, 2);
       document.getElementById('logs').textContent = (data.logs || []).join('\\n');
@@ -179,6 +215,27 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <td class="profit">$${Number(t.estimated_profit_usd).toFixed(2)}${t.executable ? '' : ' ⓘ'}</td>
           <td>${Number(t.urgency || 0).toFixed(1)}</td>`;
         tbody.appendChild(tr);
+      });
+      const ebody = document.getElementById('execution_history');
+      ebody.innerHTML = '';
+      (data.execution_history || []).forEach(e => {
+        const tr = document.createElement('tr');
+        const link = e.tx_hash ? e.tx_hash.slice(0,14) + '…' : (e.user_op_hash ? e.user_op_hash.slice(0,14) + '…' : '—');
+        const cells = [
+          (e.timestamp || '').slice(11, 19),
+          e.protocol_name || e.protocol_id,
+          (e.user || '').slice(0, 10) + '…',
+          e.status,
+          '$' + Number(e.estimated_profit_usd || 0).toFixed(2),
+          link,
+        ];
+        cells.forEach((value, idx) => {
+          const td = document.createElement('td');
+          td.textContent = value;
+          if (idx === 4) td.className = 'profit';
+          tr.appendChild(td);
+        });
+        ebody.appendChild(tr);
       });
       const wtbody = document.getElementById('watch_targets');
       wtbody.innerHTML = '';
