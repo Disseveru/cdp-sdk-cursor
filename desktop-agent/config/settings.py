@@ -52,6 +52,9 @@ class AgentSettings:
     agent_name: str
     smart_account_address: str | None
     moonwell_flash_liquidator_address: str | None
+    moonwell_oev_flash_liquidator_address: str | None
+    liquidation_intel_enabled: bool
+    agentic_wallet_enabled: bool
     dynamic_profit_enabled: bool
     min_profit_floor_usd: float
     min_profit_volatile_usd: float
@@ -133,6 +136,9 @@ def load_settings(network_override: str | None = None) -> AgentSettings:
         agent_name=os.getenv("AGENT_NAME", "cdp-flash-liquidator"),
         smart_account_address=os.getenv("SMART_ACCOUNT_ADDRESS") or os.getenv("CDP_SMART_ACCOUNT_ADDRESS"),
         moonwell_flash_liquidator_address=os.getenv("MOONWELL_FLASH_LIQUIDATOR_ADDRESS"),
+        moonwell_oev_flash_liquidator_address=os.getenv("MOONWELL_OEV_FLASH_LIQUIDATOR_ADDRESS"),
+        liquidation_intel_enabled=os.getenv("LIQUIDATION_INTEL_ENABLED", "true").lower() == "true",
+        agentic_wallet_enabled=os.getenv("AGENTIC_WALLET_ENABLED", "false").lower() == "true",
         dynamic_profit_enabled=os.getenv("DYNAMIC_PROFIT_ENABLED", "true").lower() == "true",
         min_profit_floor_usd=float(os.getenv("MIN_PROFIT_FLOOR_USD", "1.0")),
         min_profit_volatile_usd=float(os.getenv("MIN_PROFIT_VOLATILE_USD", "1.5")),
