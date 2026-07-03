@@ -115,8 +115,11 @@ class LiquidationAIEngine:
         if best.estimated_profit_usd < self.settings.min_profit_usd * 1.5:
             risk_flags.append("thin_margin")
 
-        # Execute when profit clears threshold; risk flags are advisory only.
-        action = "execute"
+        action = (
+            "execute"
+            if not risk_flags or best.estimated_profit_usd > self.settings.min_profit_usd * 3
+            else "watch"
+        )
 
         return AgentDecision(
             action=action,

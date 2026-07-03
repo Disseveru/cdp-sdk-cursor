@@ -95,21 +95,11 @@ python scripts/deploy_contract.py --morpho
 Open the **Desktop** tab in Cursor — the dashboard binds to port `8787`:
 
 ```bash
-cp .env.example .env   # real contract addresses pre-filled; credentials from cloud secrets
 python agent_runner.py --scan-only        # monitor only
-python agent_runner.py                    # live execution (EXECUTE_ENABLED=true in .env)
-python scripts/run_liquidation.py         # one-shot scan + execute best target
+python agent_runner.py                    # set EXECUTE_ENABLED=true to liquidate
 ```
 
-Dashboard: `http://localhost:8787` — shows live targets, execution history, and contract addresses.
-
-### Deployed contracts (Base mainnet)
-
-| Contract | Address | Owner |
-|----------|---------|-------|
-| FlashLiquidator (Aave V3) | `0x9157C22aF171Ae1CE9A81cDc4d36e9D5708192F0` | CDP Smart Account |
-| MorphoFlashLiquidator | `0x263B4C3670101F1dF25D683427e0f183C1332Ab4` | CDP Smart Account |
-| CDP Smart Account | `0xbE56D83a7f4B317095D0B0d351AeBBBD4300E004` | — |
+Dashboard: `http://localhost:8787`
 
 ## Components
 
@@ -134,14 +124,11 @@ On Base, the agent passes `BASE_RPC_ENDPOINT` (CDP RPC URL) as `paymaster_url` t
 ## Mainnet Execution
 
 ```bash
-cp .env.example .env
-# EXECUTE_ENABLED=true is set in .env.example
+export EXECUTE_ENABLED=true
+export FLASH_LIQUIDATOR_ADDRESS=0xYourAaveContract
+export MORPHO_FLASH_LIQUIDATOR_ADDRESS=0xYourMorphoContract
 python agent_runner.py
-# or one-shot:
-python scripts/run_liquidation.py
 ```
-
-Execution records are persisted to `data/executions.json` and shown in the dashboard.
 
 The agent will:
 
