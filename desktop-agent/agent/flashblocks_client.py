@@ -10,6 +10,7 @@ from typing import Any
 
 import aiohttp
 
+from agent.oracle_monitor import BASE_FEEDS
 from config.settings import AgentSettings
 
 logger = logging.getLogger(__name__)
@@ -73,8 +74,6 @@ class FlashblocksSubscriber:
                 backoff = min(backoff * 2, 30.0)
 
     async def _connect_and_listen(self) -> None:
-        from agent.oracle_monitor import BASE_FEEDS
-
         feed_addrs = [addr.lower() for addr in BASE_FEEDS.values()]
         async with aiohttp.ClientSession() as session:
             async with session.ws_connect(
@@ -98,6 +97,7 @@ class FlashblocksSubscriber:
                         "params": [
                             "logs",
                             {
+                                "address": feed_addrs,
                                 "topics": [ANSWER_UPDATED_TOPIC],
                             },
                         ],
@@ -127,12 +127,12 @@ class FlashblocksSubscriber:
         address = (result.get("address") or "").lower()
         topics = result.get("topics") or []
         if topics and topics[0].lower() == ANSWER_UPDATED_TOPIC.lower():
-            feed_name = "unknown"
-            for name, addr in __import__(
-                "agent.oracle_monitor", fromlist=["BASE_FEEDS"]
-            ).BASE_FEEDS.items():
-                if addr.lower() == address:
-                    feed_name = name
-                    break
-            if self._on_oracle is not None:
-                await self._on_oracle(feed_name, result)
+            if address not in feed_addrs:
+                return
+            feed_name = next(
+                (name for name, addr in BASE_FEEDS.items() if addr.lower() == address),
+                None,
+            )
+            if feed_name is None or self._on_oracle is None:
+                return
+            await self._on_oracle(feed_name, result)

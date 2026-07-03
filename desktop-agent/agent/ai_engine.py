@@ -29,7 +29,8 @@ Given liquidation candidates, respond ONLY with JSON:
   "recommended_gas_strategy": "cdp_paymaster" | "self_funded"
 }
 
-Only recommend "execute" for targets where executable=true (Aave V3, Morpho Blue, and Moonwell when contracts deployed).
+Only recommend "execute" for targets where executable=true and estimated_profit_usd meets or exceeds effective_min_profit_usd (Aave V3, Morpho Blue, and Moonwell when contracts deployed).
+During macro volatility windows, effective_min_profit_usd may be lower than the base MIN_PROFIT_USD.
 """
 
 
@@ -74,12 +75,12 @@ class LiquidationAIEngine:
             )
 
         if self.settings.anthropic_api_key:
-            llm_decision = await self._anthropic_decide(targets)
+            llm_decision = await self._anthropic_decide(targets, macro_active=macro_active)
             if llm_decision:
                 return llm_decision
 
         if self.settings.openai_api_key:
-            llm_decision = await self._openai_decide(targets)
+            llm_decision = await self._openai_decide(targets, macro_active=macro_active)
             if llm_decision:
                 return llm_decision
 
@@ -140,14 +141,31 @@ class LiquidationAIEngine:
             source="rules",
         )
 
-    async def _openai_decide(self, targets: list[LiquidationTarget]) -> AgentDecision | None:
+    def _targets_for_llm(
+        self, targets: list[LiquidationTarget], *, macro_active: bool
+    ) -> list[dict[str, Any]]:
+        from agent.dynamic_profit import effective_min_profit_usd
+
+        payload: list[dict[str, Any]] = []
+        for target in targets[:8]:
+            row = target.to_dict()
+            row["effective_min_profit_usd"] = effective_min_profit_usd(
+                self.settings, target.health_factor, macro_active=macro_active
+            )
+            row["macro_active"] = macro_active
+            payload.append(row)
+        return payload
+
+    async def _openai_decide(
+        self, targets: list[LiquidationTarget], *, macro_active: bool = False
+    ) -> AgentDecision | None:
         payload = {
             "model": "gpt-4o-mini",
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": json.dumps([t.to_dict() for t in targets[:8]], indent=2),
+                    "content": json.dumps(self._targets_for_llm(targets, macro_active=macro_active), indent=2),
                 },
             ],
             "response_format": {"type": "json_object"},
@@ -163,7 +181,9 @@ class LiquidationAIEngine:
             source="openai",
         )
 
-    async def _anthropic_decide(self, targets: list[LiquidationTarget]) -> AgentDecision | None:
+    async def _anthropic_decide(
+        self, targets: list[LiquidationTarget], *, macro_active: bool = False
+    ) -> AgentDecision | None:
         payload = {
             "model": "claude-sonnet-4-20250514",
             "max_tokens": 512,
@@ -171,7 +191,7 @@ class LiquidationAIEngine:
             "messages": [
                 {
                     "role": "user",
-                    "content": json.dumps([t.to_dict() for t in targets[:8]], indent=2),
+                    "content": json.dumps(self._targets_for_llm(targets, macro_active=macro_active), indent=2),
                 }
             ],
         }

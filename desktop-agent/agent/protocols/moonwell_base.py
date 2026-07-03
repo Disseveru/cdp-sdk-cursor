@@ -73,6 +73,13 @@ COMPTROLLER_ABI = [
         "stateMutability": "view",
         "type": "function",
     },
+    {
+        "inputs": [],
+        "name": "oracle",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
 ]
 
 MTOKEN_ABI = [
@@ -121,6 +128,16 @@ MTOKEN_ABI = [
         ],
         "name": "Borrow",
         "type": "event",
+    },
+]
+
+PRICE_ORACLE_ABI = [
+    {
+        "inputs": [{"internalType": "address", "name": "mToken", "type": "address"}],
+        "name": "getUnderlyingPrice",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
     },
 ]
 

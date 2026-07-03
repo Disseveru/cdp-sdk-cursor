@@ -20,6 +20,7 @@ from agent.protocols.moonwell_base import (
     ERC20_ABI,
     MOONWELL_BASE,
     MTOKEN_ABI,
+    PRICE_ORACLE_ABI,
 )
 from config.settings import AgentSettings
 
@@ -44,6 +45,7 @@ class MoonwellScanner(ProtocolScanner):
         self._markets: list[dict[str, Any]] = []
         self._close_factor: float = 0.5
         self._liq_incentive_bps: int = 800
+        self._oracle: Contract | None = None
 
     def _cache_path(self) -> Path:
         return self.settings.borrower_cache_dir / f"{self.protocol_id}.json"
@@ -57,6 +59,16 @@ class MoonwellScanner(ProtocolScanner):
             self._liq_incentive_bps = int((incentive / MANTISSA - 1) * 10_000)
         except Exception:
             pass
+
+        if self._oracle is None:
+            try:
+                oracle_addr = self.comptroller.functions.oracle().call()
+                self._oracle = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(oracle_addr),
+                    abi=PRICE_ORACLE_ABI,
+                )
+            except Exception:
+                self._oracle = None
 
         market_addrs = list(MOONWELL_BASE["markets"].values())
         try:
@@ -174,16 +186,21 @@ class MoonwellScanner(ProtocolScanner):
             liquidity_usd = liquidity / MANTISSA
             if liquidity_usd <= 0:
                 continue
-            # Approximate HF from liquidity buffer vs debt
+            # Approximate HF from liquidity buffer vs borrow value (both in USD).
             try:
-                total_borrow = 0
+                total_borrow_usd = 0.0
                 for market in self._markets:
                     borrow = market["contract"].functions.borrowBalanceStored(user).call()
-                    if borrow > 0:
-                        total_borrow += borrow / (10 ** market["decimals"])
-                if total_borrow <= 0:
+                    if borrow <= 0:
+                        continue
+                    if self._oracle is not None:
+                        price = self._oracle.functions.getUnderlyingPrice(market["mtoken"]).call()
+                        total_borrow_usd += borrow * price / MANTISSA
+                    else:
+                        total_borrow_usd += borrow / (10 ** market["decimals"])
+                if total_borrow_usd <= 0:
                     continue
-                hf_proxy = 1.0 + (liquidity_usd / max(total_borrow, 1e-9))
+                hf_proxy = 1.0 + (liquidity_usd / max(total_borrow_usd, 1e-9))
             except Exception:
                 hf_proxy = 1.02
             if hf_proxy >= self.settings.watch_hf_threshold or hf_proxy < 1.0:
@@ -200,8 +217,8 @@ class MoonwellScanner(ProtocolScanner):
                     health_factor=hf_proxy,
                     collateral_symbol=collateral_market["symbol"],
                     debt_symbol=borrow_market["symbol"],
-                    debt_usd=total_borrow,
-                    collateral_usd=liquidity_usd + total_borrow,
+                    debt_usd=total_borrow_usd,
+                    collateral_usd=liquidity_usd + total_borrow_usd,
                     price_to_liquidation_pct=max(0.0, (hf_proxy - 1.0) * 100),
                     market_id=borrow_market["mtoken"],
                 )
@@ -259,7 +276,7 @@ class MoonwellScanner(ProtocolScanner):
                 borrow_market["mtoken"],
                 collateral_market["mtoken"],
                 debt_to_cover,
-            ).call()[0]
+            ).call()[1]
         )
 
         estimated_profit, _ = await estimate_profit_with_swap_quote(

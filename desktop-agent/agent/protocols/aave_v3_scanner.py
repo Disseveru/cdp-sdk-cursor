@@ -13,7 +13,7 @@ from web3 import Web3
 from web3.contract import Contract
 
 from agent.dynamic_profit import effective_min_profit_usd
-from agent.models import LiquidationTarget, WatchTarget, WatchTarget
+from agent.models import LiquidationTarget, WatchTarget
 from agent.profit_engine import estimate_profit_with_swap_quote, resolve_swap_fee
 from agent.protocols.aave_v3_base import (
     AAVE_BASE_SUBGRAPH,

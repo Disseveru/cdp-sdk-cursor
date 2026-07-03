@@ -48,7 +48,7 @@ def compute_gas_bid(
     """Derive priority fee from recent block rewards (95th for liquidations)."""
     percentile = LIQUIDATION_PERCENTILE if urgency == "liquidation" else ARB_PERCENTILE
     try:
-        history = w3.eth.fee_history(blocks, "latest", [percentile / 100.0])
+        history = w3.eth.fee_history(blocks, "latest", [float(percentile)])
         rewards = history.get("reward") or []
         priority_samples = [int(row[0]) for row in rewards if row]
         priority = _percentile(priority_samples, percentile) if priority_samples else DEFAULT_PRIORITY_WEI

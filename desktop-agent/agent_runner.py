@@ -207,7 +207,8 @@ class FlashLiquidationAgent:
                 return self.settings.fast_scan_interval_seconds
 
         borrowers_by_protocol = await self.scanner.discover_borrowers()
-        priority_users = [w.user for w in await self.scanner.fetch_watch_list()]
+        watch_list = await self.scanner.fetch_watch_list()
+        priority_users = [w.user for w in watch_list]
         total_borrowers = sum(len(v) for v in borrowers_by_protocol.values())
         push_log(
             f"Tracking {total_borrowers} borrowers ({self.scanner.borrower_stats(borrowers_by_protocol)})"
@@ -218,7 +219,6 @@ class FlashLiquidationAgent:
             macro_active=macro_active,
             priority_users=priority_users if force_fast else None,
         )
-        watch_list = await self.scanner.fetch_watch_list()
         staged = await self.watch_stager.refresh_from_watch(
             watch_list,
             self.scanner.resolve_watch_target,
@@ -268,14 +268,31 @@ class FlashLiquidationAgent:
                 push_log(f"Error: {exc}")
                 sleep_for = float(self.settings.scan_interval_seconds)
 
-            try:
-                await asyncio.wait_for(
-                    self._oracle_trigger.wait(),
-                    timeout=sleep_for,
-                )
-                self._oracle_trigger.clear()
-            except asyncio.TimeoutError:
-                pass
+            await self._wait_for_scan_trigger(sleep_for)
+
+    async def _wait_for_scan_trigger(self, timeout: float) -> None:
+        """Sleep until timeout or an oracle / Flashblocks head trigger fires."""
+        if self._oracle_trigger.is_set() or self._fast_scan_trigger.is_set():
+            return
+
+        oracle_waiter = asyncio.create_task(self._oracle_trigger.wait())
+        fast_waiter = asyncio.create_task(self._fast_scan_trigger.wait())
+        try:
+            _done, pending = await asyncio.wait(
+                {oracle_waiter, fast_waiter},
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        except asyncio.CancelledError:
+            oracle_waiter.cancel()
+            fast_waiter.cancel()
+            raise
 
     async def shutdown(self) -> None:
         self._running = False

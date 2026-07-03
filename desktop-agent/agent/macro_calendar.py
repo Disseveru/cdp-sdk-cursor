@@ -14,15 +14,17 @@ class MacroEvent:
 
     def is_active(self, now: datetime | None = None) -> bool:
         now = now or datetime.now(UTC)
-        start = datetime(
+        noon = datetime(
             self.event_date.year,
             self.event_date.month,
             self.event_date.day,
             12,
             0,
             tzinfo=UTC,
-        ) - timedelta(hours=self.window_hours)
-        end = start + timedelta(hours=self.window_hours * 2 + 12)
+        )
+        start = noon - timedelta(hours=self.window_hours)
+        # Post-event volatility persists longer than the pre-event buffer.
+        end = noon + timedelta(hours=self.window_hours + 12)
         return start <= now <= end
 
 
@@ -39,12 +41,13 @@ _MACRO_EVENTS_2026: list[MacroEvent] = [
     MacroEvent("FOMC", date(2026, 3, 18)),
     MacroEvent("US CPI", date(2026, 4, 10)),
     MacroEvent("US NFP", date(2026, 4, 3)),
+    MacroEvent("FOMC", date(2026, 4, 29)),
     MacroEvent("KelpDAO stress", date(2026, 4, 14), window_hours=72),
     MacroEvent("US CPI", date(2026, 5, 12)),
     MacroEvent("US NFP", date(2026, 5, 8)),
-    MacroEvent("FOMC", date(2026, 5, 6)),
     MacroEvent("US CPI", date(2026, 6, 10)),
     MacroEvent("US NFP", date(2026, 6, 5), window_hours=12),
+    MacroEvent("FOMC", date(2026, 6, 17)),
     MacroEvent("BTC cascade", date(2026, 6, 17), window_hours=72),
     MacroEvent("US CPI", date(2026, 7, 10)),
     MacroEvent("US NFP", date(2026, 7, 3)),
@@ -56,12 +59,12 @@ _MACRO_EVENTS_2026: list[MacroEvent] = [
     MacroEvent("FOMC", date(2026, 9, 16)),
     MacroEvent("US CPI", date(2026, 10, 13)),
     MacroEvent("US NFP", date(2026, 10, 2)),
+    MacroEvent("FOMC", date(2026, 10, 28)),
     MacroEvent("US CPI", date(2026, 11, 12)),
     MacroEvent("US NFP", date(2026, 11, 6)),
-    MacroEvent("FOMC", date(2026, 11, 4)),
     MacroEvent("US CPI", date(2026, 12, 10)),
     MacroEvent("US NFP", date(2026, 12, 4)),
-    MacroEvent("FOMC", date(2026, 12, 16)),
+    MacroEvent("FOMC", date(2026, 12, 9)),
 ]
 
 

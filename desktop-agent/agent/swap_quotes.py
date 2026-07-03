@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -212,24 +213,33 @@ async def get_best_swap_quote(
     if session is None:
         session = aiohttp.ClientSession()
     try:
+        tasks: list[asyncio.Task[SwapQuote | None]] = []
         if provider in ("auto", "odos"):
-            odos = await get_odos_quote(
-                token_in, token_out, amount_in, chain_id, api_key=odos_api_key, session=session
+            tasks.append(
+                asyncio.create_task(
+                    get_odos_quote(
+                        token_in, token_out, amount_in, chain_id, api_key=odos_api_key, session=session
+                    )
+                )
             )
-            if odos:
-                quotes.append(odos)
         if provider in ("auto", "1inch") and oneinch_api_key:
-            one = await get_oneinch_quote(
-                token_in, token_out, amount_in, chain_id, oneinch_api_key, session=session
+            tasks.append(
+                asyncio.create_task(
+                    get_oneinch_quote(
+                        token_in, token_out, amount_in, chain_id, oneinch_api_key, session=session
+                    )
+                )
             )
-            if one:
-                quotes.append(one)
         if provider in ("auto", "kyber"):
-            kyber = await get_kyber_quote(token_in, token_out, amount_in, session=session)
-            if kyber:
-                quotes.append(kyber)
+            tasks.append(
+                asyncio.create_task(get_kyber_quote(token_in, token_out, amount_in, session=session))
+            )
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            quotes = [q for q in results if isinstance(q, SwapQuote)]
         if not quotes:
             return None
+        # Net gas cost is applied downstream in profit_engine; rank by gross output here.
         return max(quotes, key=lambda q: q.amount_out)
     finally:
         if close_session:

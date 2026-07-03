@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from config.settings import AgentSettings
 
+# Health-factor tiers for dynamic minimum-profit scaling.
+HF_TIER_URGENT = 0.95
+HF_TIER_ELEVATED = 0.98
+HF_TIER_NEAR = 1.0
+HF_MULTIPLIER_URGENT = 0.4
+HF_MULTIPLIER_ELEVATED = 0.65
+HF_MULTIPLIER_NEAR = 0.85
+
 
 def is_volatility_mode(settings: AgentSettings, *, macro_active: bool = False) -> bool:
     """True when macro calendar or explicit volatility flag lowers profit bar."""
@@ -27,10 +35,10 @@ def effective_min_profit_usd(
 
     if health_factor <= 0:
         return floor
-    if health_factor < 0.95:
-        return max(floor, base * 0.4)
-    if health_factor < 0.98:
-        return max(floor, base * 0.65)
-    if health_factor < 1.0:
-        return max(floor, base * 0.85)
+    if health_factor < HF_TIER_URGENT:
+        return max(floor, base * HF_MULTIPLIER_URGENT)
+    if health_factor < HF_TIER_ELEVATED:
+        return max(floor, base * HF_MULTIPLIER_ELEVATED)
+    if health_factor < HF_TIER_NEAR:
+        return max(floor, base * HF_MULTIPLIER_NEAR)
     return base

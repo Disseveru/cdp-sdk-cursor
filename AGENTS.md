@@ -32,7 +32,7 @@ When the user asks about liquidations, arbitrage, or "completing the subproject"
 Deployed Base mainnet contracts (see `desktop-agent/.env.example` for current addresses):
 
 - Aave `FlashLiquidator`, Morpho `MorphoFlashLiquidator`, Morpho `MorphoFlashArbitrage`
-- Moonwell `MoonwellFlashLiquidator` — deploy contract then set `MOONWELL_FLASH_LIQUIDATOR_ADDRESS`
+- Moonwell `MoonwellFlashLiquidator` — deploy contract, set `MOONWELL_FLASH_LIQUIDATOR_ADDRESS`, and add the contract to the CDP paymaster allowlist (same as Aave/Morpho) so sponsored liquidations work
 - CDP Smart Account executor — execution uses paymaster gas sponsorship
 
 Tier 1/2 profitability features (oracle-triggered scan, watch-list pre-staging,
