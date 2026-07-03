@@ -16,7 +16,6 @@ sys.path.insert(0, str(ROOT))
 
 from agent.ai_engine import LiquidationAIEngine
 from agent.cdp_wallet import CdpWalletManager
-from agent.execution_history import ExecutionHistory, ExecutionRecord
 from agent.executor import FlashLiquidationExecutor
 from agent.oracle_monitor import OracleMonitor
 from agent.scanner import MultiProtocolScanner
@@ -41,7 +40,6 @@ class FlashLiquidationAgent:
         self.ai = LiquidationAIEngine(self.settings)
         self.oracle_monitor: OracleMonitor | None = None
         self._running = False
-        self.history = ExecutionHistory()
 
     async def setup(self) -> None:
         bundle = await self.wallet.initialize()
@@ -53,11 +51,6 @@ class FlashLiquidationAgent:
             network=self.settings.network,
             smart_account=bundle.smart_account.address,
             enabled_protocols=self.scanner.protocol_names,
-            execute_enabled=self.settings.execute_enabled,
-            flash_liquidator=self.settings.flash_liquidator_address,
-            morpho_liquidator=self.settings.morpho_flash_liquidator_address,
-            execution_history=self.history.load()[:20],
-            execution_summary=self.history.summary(),
         )
         push_log(f"Agent ready on {self.settings.network}")
         push_log(f"Protocols: {', '.join(self.scanner.protocol_names)}")
@@ -133,17 +126,8 @@ class FlashLiquidationAgent:
                         if contract_ok:
                             push_log(f"Executing {match.protocol_name} liquidation for {match.user}")
                             result = await self.executor.execute(match)
-                            record = self.history.append(ExecutionRecord.from_execution_result(result))
-                            update_state(
-                                last_execution=result.to_dict(),
-                                execution_history=self.history.load()[:20],
-                                execution_summary=self.history.summary(),
-                            )
+                            update_state(last_execution=result.__dict__)
                             push_log(result.message)
-                            if result.user_op_hash:
-                                push_log(f"UserOp: {result.user_op_hash}")
-                            if result.tx_hash:
-                                push_log(f"Tx: https://basescan.org/tx/{result.tx_hash}")
 
             except Exception as exc:
                 logger.exception("Agent loop error")

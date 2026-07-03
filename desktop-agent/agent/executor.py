@@ -23,16 +23,6 @@ class ExecutionResult:
     user_op_hash: str | None
     status: str
     message: str
-    tx_hash: str | None = None
-
-    def to_dict(self) -> dict:
-        return {
-            "target": self.target.to_dict(),
-            "user_op_hash": self.user_op_hash,
-            "status": self.status,
-            "message": self.message,
-            "tx_hash": self.tx_hash,
-        }
 
 
 class FlashLiquidationExecutor:
@@ -157,16 +147,11 @@ class FlashLiquidationExecutor:
                 user_op_hash=user_op.user_op_hash,
                 timeout_seconds=120,
             )
-            tx_hash = getattr(receipt, "transaction_hash", None)
             return ExecutionResult(
                 target=target,
                 user_op_hash=user_op.user_op_hash,
                 status=receipt.status,
-                message=(
-                    f"{target.protocol_name} liquidation executed for {target.user}"
-                    + (f" tx={tx_hash}" if tx_hash else "")
-                ),
-                tx_hash=tx_hash,
+                message=f"{target.protocol_name} liquidation submitted for {target.user}",
             )
         except Exception as exc:
             logger.exception("Liquidation execution failed")
