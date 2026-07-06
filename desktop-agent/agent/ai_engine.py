@@ -77,12 +77,16 @@ class LiquidationAIEngine:
         if self.settings.anthropic_api_key:
             llm_decision = await self._anthropic_decide(targets, macro_active=macro_active)
             if llm_decision:
-                return llm_decision
+                guarded = self._guard_execute_decision(llm_decision, targets, macro_active=macro_active)
+                if guarded is not None:
+                    return guarded
 
         if self.settings.openai_api_key:
             llm_decision = await self._openai_decide(targets, macro_active=macro_active)
             if llm_decision:
-                return llm_decision
+                guarded = self._guard_execute_decision(llm_decision, targets, macro_active=macro_active)
+                if guarded is not None:
+                    return guarded
 
         return self._rules_decide(targets, macro_active=macro_active)
 
@@ -98,48 +102,118 @@ class LiquidationAIEngine:
             and t.estimated_profit_usd
             >= effective_min_profit_usd(self.settings, t.health_factor, macro_active=macro_active)
         ]
-        best = executable[0] if executable else ranked[0]
-        risk_flags: list[str] = []
+        if executable:
+            best = executable[0]
+            risk_flags: list[str] = []
 
-        if not best.executable:
-            risk_flags.append("monitor_only_no_executor")
+            if best.health_factor > 0.98:
+                risk_flags.append("health_factor_near_boundary")
+            if best.collateral_symbol == best.debt_symbol:
+                risk_flags.append("same_asset_pair_swap_unnecessary")
+            min_profit = effective_min_profit_usd(
+                self.settings, best.health_factor, macro_active=macro_active
+            )
+            if best.estimated_profit_usd < min_profit * 1.5:
+                risk_flags.append("thin_margin")
+
             return AgentDecision(
-                action="watch",
+                action="execute",
                 target_user=best.user,
                 protocol_id=best.protocol_id,
                 reasoning=(
                     f"[{best.protocol_name}] HF={best.health_factor:.4f}, est. profit "
-                    f"${best.estimated_profit_usd:.2f} — monitor only (no flash executor deployed)."
+                    f"${best.estimated_profit_usd:.2f} on {best.collateral_symbol}/{best.debt_symbol}. "
+                    f"Flash borrow {best.debt_to_cover_human:.4f} {best.debt_symbol}."
                 ),
                 risk_flags=risk_flags,
                 recommended_gas_strategy="cdp_paymaster",
                 source="rules",
             )
 
-        if best.health_factor > 0.98:
-            risk_flags.append("health_factor_near_boundary")
-        if best.collateral_symbol == best.debt_symbol:
-            risk_flags.append("same_asset_pair_swap_unnecessary")
-        min_profit = effective_min_profit_usd(self.settings, best.health_factor, macro_active=macro_active)
-        if best.estimated_profit_usd < min_profit * 1.5:
-            risk_flags.append("thin_margin")
-
-        # Execute when profit clears threshold; risk flags are advisory only.
-        action = "execute"
+        if ranked:
+            best = ranked[0]
+            risk_flags: list[str] = []
+            if not best.executable:
+                risk_flags.append("monitor_only_no_executor")
+                reasoning = (
+                    f"[{best.protocol_name}] HF={best.health_factor:.4f}, est. profit "
+                    f"${best.estimated_profit_usd:.2f} — monitor only (no flash executor deployed)."
+                )
+            else:
+                min_profit = effective_min_profit_usd(
+                    self.settings, best.health_factor, macro_active=macro_active
+                )
+                risk_flags.append("below_profit_threshold")
+                reasoning = (
+                    f"[{best.protocol_name}] HF={best.health_factor:.4f}, est. profit "
+                    f"${best.estimated_profit_usd:.2f} below dynamic minimum ${min_profit:.2f}."
+                )
+            return AgentDecision(
+                action="watch",
+                target_user=best.user,
+                protocol_id=best.protocol_id,
+                reasoning=reasoning,
+                risk_flags=risk_flags,
+                recommended_gas_strategy="cdp_paymaster",
+                source="rules",
+            )
 
         return AgentDecision(
-            action=action,
-            target_user=best.user,
-            protocol_id=best.protocol_id,
-            reasoning=(
-                f"[{best.protocol_name}] HF={best.health_factor:.4f}, est. profit "
-                f"${best.estimated_profit_usd:.2f} on {best.collateral_symbol}/{best.debt_symbol}. "
-                f"Flash borrow {best.debt_to_cover_human:.4f} {best.debt_symbol}."
-            ),
-            risk_flags=risk_flags,
+            action="watch",
+            target_user=None,
+            protocol_id=None,
+            reasoning="No ranked liquidation candidates.",
+            risk_flags=[],
             recommended_gas_strategy="cdp_paymaster",
             source="rules",
         )
+
+    def _match_target(
+        self, decision: AgentDecision, targets: list[LiquidationTarget]
+    ) -> LiquidationTarget | None:
+        if not decision.target_user:
+            return None
+        user = decision.target_user.lower()
+        for target in targets:
+            if target.user.lower() != user:
+                continue
+            if decision.protocol_id and target.protocol_id != decision.protocol_id:
+                continue
+            return target
+        return None
+
+    def _target_meets_execute_threshold(
+        self, target: LiquidationTarget, *, macro_active: bool
+    ) -> bool:
+        from agent.dynamic_profit import effective_min_profit_usd
+
+        if not target.executable:
+            return False
+        min_profit = effective_min_profit_usd(
+            self.settings, target.health_factor, macro_active=macro_active
+        )
+        return target.estimated_profit_usd >= min_profit
+
+    def _guard_execute_decision(
+        self,
+        decision: AgentDecision,
+        targets: list[LiquidationTarget],
+        *,
+        macro_active: bool,
+    ) -> AgentDecision | None:
+        """Allow non-execute LLM decisions through; validate execute against live thresholds."""
+        if decision.action != "execute":
+            return decision
+
+        matched = self._match_target(decision, targets)
+        if matched is None or not self._target_meets_execute_threshold(matched, macro_active=macro_active):
+            logger.warning(
+                "LLM execute rejected for %s (%s); falling back to rules",
+                decision.target_user,
+                decision.protocol_id,
+            )
+            return None
+        return decision
 
     def _targets_for_llm(
         self, targets: list[LiquidationTarget], *, macro_active: bool
