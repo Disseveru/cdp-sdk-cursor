@@ -20,7 +20,12 @@ USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 TEST_USER = "0x3c3CfA1dD813e4469DD5FD6662bc858AaA40E531"
 AAVE_FL = "0x9157C22aF171Ae1CE9A81cDc4d36e9D5708192F0"
 MORPHO_FL = "0x263B4C3670101F1dF25D683427e0f183C1332Ab4"
-ORACLE = "0x2222222222222222222222222222222222222222"
+MOONWELL_FL = "0x1111111111111111111111111111111111111111"
+MOONWELL_OEV_FL = "0x2222222222222222222222222222222222222222"
+OEV_WRAPPER_WETH = "0xeb083d234ec636A10325ea42bCbbE09Aa56d1547"
+MTOKEN_WETH = "0x628ff693426583D9a7FB391E54366292F509D457"
+MTOKEN_USDC = "0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22"
+ORACLE = "0x3333333333333333333333333333333333333333"
 IRM = "0x46415998764C29aB2a25CbeA6254146D50D22687"
 
 
@@ -55,6 +60,9 @@ def settings() -> AgentSettings:
         agent_name="test-agent",
         smart_account_address=TEST_USER,
         moonwell_flash_liquidator_address=None,
+        moonwell_oev_flash_liquidator_address=None,
+        liquidation_intel_enabled=False,
+        agentic_wallet_enabled=False,
         dynamic_profit_enabled=True,
         min_profit_floor_usd=1.0,
         min_profit_volatile_usd=1.5,
@@ -128,4 +136,33 @@ def morpho_target() -> LiquidationTarget:
         repaid_shares=1_500_000_000_000_000_000,
         debt_decimals=6,
         collateral_decimals=18,
+    )
+
+
+@pytest.fixture
+def moonwell_oev_target() -> LiquidationTarget:
+    return LiquidationTarget(
+        protocol_id="moonwell",
+        protocol_name="Moonwell",
+        user=TEST_USER,
+        health_factor=0.94,
+        total_collateral_usd=6_000.0,
+        total_debt_usd=3_000.0,
+        collateral_asset=WETH_BASE,
+        collateral_symbol="WETH",
+        debt_asset=USDC_BASE,
+        debt_symbol="USDC",
+        debt_to_cover=500_000_000,
+        debt_to_cover_human=500.0,
+        estimated_profit_usd=25.0,
+        swap_fee=500,
+        flash_amount=500_000_000,
+        liquidation_bonus_bps=800,
+        executable=True,
+        debt_decimals=6,
+        collateral_decimals=18,
+        mtoken_borrowed=MTOKEN_USDC,
+        mtoken_collateral=MTOKEN_WETH,
+        use_oev_path=True,
+        oev_wrapper=OEV_WRAPPER_WETH,
     )

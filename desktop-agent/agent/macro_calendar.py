@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
+# Extra hours after the noon anchor when post-event volatility is still elevated.
+POST_EVENT_BUFFER_HOURS = 12
+
 
 @dataclass(frozen=True)
 class MacroEvent:
@@ -24,7 +27,7 @@ class MacroEvent:
         )
         start = noon - timedelta(hours=self.window_hours)
         # Post-event volatility persists longer than the pre-event buffer.
-        end = noon + timedelta(hours=self.window_hours + 12)
+        end = noon + timedelta(hours=self.window_hours + POST_EVENT_BUFFER_HOURS)
         return start <= now <= end
 
 

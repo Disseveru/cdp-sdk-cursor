@@ -9,12 +9,17 @@ import {IPool} from "aave-v3-core/contracts/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "aave-v3-core/contracts/interfaces/IPoolAddressesProvider.sol";
 import {IFlashLoanSimpleReceiver} from "aave-v3-core/contracts/flashloan/interfaces/IFlashLoanSimpleReceiver.sol";
 
-interface IMToken {
-    function liquidateBorrow(
+interface IChainlinkOEVWrapper {
+    function updatePriceEarlyAndLiquidate(
         address borrower,
         uint256 repayAmount,
-        address mTokenCollateral
-    ) external returns (uint256);
+        address mTokenCollateral,
+        address mTokenLoan
+    ) external;
+}
+
+interface IMToken {
+    function redeem(uint256 redeemTokens) external returns (uint256);
 }
 
 interface ISwapRouter02 {
@@ -31,12 +36,14 @@ interface ISwapRouter02 {
     function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
 }
 
-/// @title MoonwellFlashLiquidator
-/// @notice Atomic Aave flash-loan Moonwell (Compound V2) liquidation with Uniswap V3 swap-back.
-contract MoonwellFlashLiquidator is IFlashLoanSimpleReceiver, Ownable, ReentrancyGuard {
+/// @title MoonwellOEVFlashLiquidator
+/// @notice Aave flash-loan + Moonwell OEV wrapper liquidation during the ~10s early-price window.
+/// @dev Use the ChainlinkOEVWrapper that matches collateral (WETH on Base: 0xeb083d234ec636A10325ea42bCbbE09Aa56d1547).
+contract MoonwellOEVFlashLiquidator is IFlashLoanSimpleReceiver, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    struct LiquidationParams {
+    struct OEVLiquidationParams {
+        address oevWrapper;
         address mTokenBorrowed;
         address mTokenCollateral;
         address debtUnderlying;
@@ -51,10 +58,9 @@ contract MoonwellFlashLiquidator is IFlashLoanSimpleReceiver, Ownable, Reentranc
     ISwapRouter02 public immutable SWAP_ROUTER;
     IPoolAddressesProvider public immutable ADDRESSES_PROVIDER;
 
-    event MoonwellLiquidationExecuted(
+    event MoonwellOEVLiquidationExecuted(
         address indexed borrower,
-        address indexed collateralUnderlying,
-        address indexed debtUnderlying,
+        address indexed oevWrapper,
         uint256 repayAmount,
         uint256 profit
     );
@@ -70,10 +76,10 @@ contract MoonwellFlashLiquidator is IFlashLoanSimpleReceiver, Ownable, Reentranc
         SWAP_ROUTER = ISwapRouter02(swapRouter);
     }
 
-    function liquidate(
+    function liquidateOEV(
         address debtAsset,
         uint256 flashAmount,
-        LiquidationParams calldata params
+        OEVLiquidationParams calldata params
     ) external onlyOwner nonReentrant {
         POOL.flashLoanSimple(address(this), debtAsset, flashAmount, abi.encode(params), 0);
     }
@@ -88,30 +94,32 @@ contract MoonwellFlashLiquidator is IFlashLoanSimpleReceiver, Ownable, Reentranc
         if (msg.sender != address(POOL)) revert OnlyPool();
         if (initiator != address(this)) revert InvalidInitiator();
 
-        LiquidationParams memory lp = abi.decode(params, (LiquidationParams));
+        OEVLiquidationParams memory lp = abi.decode(params, (OEVLiquidationParams));
         if (lp.debtUnderlying != asset) revert SwapFailed();
 
         IERC20 debtToken = IERC20(asset);
-        debtToken.forceApprove(lp.mTokenBorrowed, lp.repayAmount);
+        debtToken.forceApprove(lp.oevWrapper, lp.repayAmount);
 
-        IMToken(lp.mTokenBorrowed).liquidateBorrow(
+        IChainlinkOEVWrapper(lp.oevWrapper).updatePriceEarlyAndLiquidate(
             lp.borrower,
             lp.repayAmount,
-            lp.mTokenCollateral
+            lp.mTokenCollateral,
+            lp.mTokenBorrowed
         );
 
-        if (lp.collateralUnderlying != lp.debtUnderlying) {
-            IERC20 collateral = IERC20(lp.collateralUnderlying);
-            uint256 collateralBalance = collateral.balanceOf(address(this));
-            if (collateralBalance > 0) {
-                collateral.forceApprove(address(SWAP_ROUTER), collateralBalance);
+        uint256 mTokenBalance = IERC20(lp.mTokenCollateral).balanceOf(address(this));
+        if (mTokenBalance > 0) {
+            uint256 underlyingOut = IMToken(lp.mTokenCollateral).redeem(mTokenBalance);
+            if (lp.collateralUnderlying != lp.debtUnderlying && underlyingOut > 0) {
+                IERC20 collateral = IERC20(lp.collateralUnderlying);
+                collateral.forceApprove(address(SWAP_ROUTER), underlyingOut);
                 uint256 swapped = SWAP_ROUTER.exactInputSingle(
                     ISwapRouter02.ExactInputSingleParams({
                         tokenIn: lp.collateralUnderlying,
                         tokenOut: lp.debtUnderlying,
                         fee: lp.swapFee,
                         recipient: address(this),
-                        amountIn: collateralBalance,
+                        amountIn: underlyingOut,
                         amountOutMinimum: lp.minAmountOut,
                         sqrtPriceLimitX96: 0
                     })
@@ -130,13 +138,7 @@ contract MoonwellFlashLiquidator is IFlashLoanSimpleReceiver, Ownable, Reentranc
             debtToken.safeTransfer(owner(), profit);
         }
 
-        emit MoonwellLiquidationExecuted(
-            lp.borrower,
-            lp.collateralUnderlying,
-            lp.debtUnderlying,
-            lp.repayAmount,
-            profit
-        );
+        emit MoonwellOEVLiquidationExecuted(lp.borrower, lp.oevWrapper, lp.repayAmount, profit);
         return true;
     }
 

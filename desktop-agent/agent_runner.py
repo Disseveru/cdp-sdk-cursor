@@ -19,6 +19,7 @@ from agent.cdp_wallet import CdpWalletManager
 from agent.execution_history import ExecutionHistory, ExecutionRecord
 from agent.executor import FlashLiquidationExecutor
 from agent.flashblocks_client import FlashblocksSubscriber
+from agent.liquidation_intel import enrich_volatility_context
 from agent.macro_calendar import is_volatility_window, volatility_summary
 from agent.oracle_monitor import OracleMonitor
 from agent.scanner import MultiProtocolScanner
@@ -73,6 +74,7 @@ class FlashLiquidationAgent:
             flash_liquidator=self.settings.flash_liquidator_address,
             morpho_liquidator=self.settings.morpho_flash_liquidator_address,
             moonwell_liquidator=self.settings.moonwell_flash_liquidator_address,
+            moonwell_oev_liquidator=self.settings.moonwell_oev_flash_liquidator_address,
             execution_history=self.history.load()[:20],
             execution_summary=self.history.summary(),
             macro_mode="normal",
@@ -87,6 +89,8 @@ class FlashLiquidationAgent:
             push_log(f"MorphoFlashLiquidator: {self.settings.morpho_flash_liquidator_address}")
         if self.settings.moonwell_flash_liquidator_address:
             push_log(f"MoonwellFlashLiquidator: {self.settings.moonwell_flash_liquidator_address}")
+        if self.settings.moonwell_oev_flash_liquidator_address:
+            push_log(f"MoonwellOEVFlashLiquidator: {self.settings.moonwell_oev_flash_liquidator_address}")
         if self.settings.flashblocks_enabled:
             push_log("Flashblocks fast-path: enabled")
         if self.settings.macro_calendar_enabled:
@@ -163,7 +167,13 @@ class FlashLiquidationAgent:
         contract_ok = (
             (match.protocol_id == "aave-v3" and self.settings.flash_liquidator_address)
             or (match.protocol_id == "morpho" and self.settings.morpho_flash_liquidator_address)
-            or (match.protocol_id == "moonwell" and self.settings.moonwell_flash_liquidator_address)
+            or (
+                match.protocol_id == "moonwell"
+                and (
+                    self.settings.moonwell_flash_liquidator_address
+                    or (match.use_oev_path and self.settings.moonwell_oev_flash_liquidator_address)
+                )
+            )
         )
         if not contract_ok:
             return
@@ -201,6 +211,12 @@ class FlashLiquidationAgent:
 
         if macro_active and not oracle_updates:
             push_log(f"Macro volatility window active: {volatility_summary()}")
+
+        if macro_active or force_fast:
+            intel = await enrich_volatility_context(self.settings)
+            if intel.get("sources"):
+                push_log(f"Liquidation intel: {', '.join(intel['sources'])}")
+                update_state(liquidation_intel=intel)
 
         if force_fast and self.settings.execute_enabled:
             if await self._try_staged_execution(macro_active):
