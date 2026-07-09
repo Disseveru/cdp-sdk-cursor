@@ -65,17 +65,21 @@ async def test_get_swap_quote_zero_amount():
 
 
 @pytest.mark.asyncio
-async def test_get_swap_quote_prefers_oneinch_when_key_set():
-    oneinch_quote = MagicMock()
-    oneinch_quote.provider = "1inch"
-    with patch("agent.swap_quotes.get_oneinch_quote", new_callable=AsyncMock, return_value=oneinch_quote):
-        with patch("agent.swap_quotes.get_kyber_quote", new_callable=AsyncMock) as kyber:
-            quote = await get_swap_quote(
-                WETH_BASE,
-                USDC_BASE,
-                10**18,
-                oneinch_api_key="test-key",
-                provider="auto",
-            )
+async def test_get_swap_quote_prefers_best_amount_out():
+    from agent.swap_quotes import SwapQuote
+
+    oneinch = SwapQuote(WETH_BASE, USDC_BASE, 10**18, 2_000_000_000, "1inch")
+    kyber = SwapQuote(WETH_BASE, USDC_BASE, 10**18, 1_500_000_000, "kyber")
+    with patch("agent.swap_quotes.get_oneinch_quote", new_callable=AsyncMock, return_value=oneinch):
+        with patch("agent.swap_quotes.get_kyber_quote", new_callable=AsyncMock, return_value=kyber):
+            with patch("agent.swap_quotes.get_odos_quote", new_callable=AsyncMock, return_value=None):
+                quote = await get_swap_quote(
+                    WETH_BASE,
+                    USDC_BASE,
+                    10**18,
+                    oneinch_api_key="test-key",
+                    provider="auto",
+                )
+    assert quote is not None
     assert quote.provider == "1inch"
-    kyber.assert_not_called()
+    assert quote.amount_out == 2_000_000_000

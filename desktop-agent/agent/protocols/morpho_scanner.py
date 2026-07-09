@@ -11,10 +11,12 @@ from typing import Any
 import aiohttp
 from web3 import Web3
 
+from agent.dynamic_profit import effective_min_profit_usd
 from agent.models import LiquidationTarget
 from agent.profit_engine import (
     estimate_profit_with_swap_quote,
     morpho_liquidation_incentive_factor,
+    resolve_swap_fee,
     urgency_score,
 )
 from agent.protocols.base import ProtocolScanner
@@ -192,14 +194,43 @@ class MorphoScanner(ProtocolScanner):
         for pos in items:
             if not self._is_blue_chip(pos):
                 continue
-            target = await self._to_target(pos)
+            target = await self._to_target(pos, macro_active=False)
             if target is not None:
                 targets.append(target)
 
         targets.sort(key=lambda t: (t.urgency, t.estimated_profit_usd), reverse=True)
         return targets
 
-    async def _to_target(self, pos: dict[str, Any]) -> LiquidationTarget | None:
+    async def evaluate_user(self, user: str, *, macro_active: bool = False) -> LiquidationTarget | None:
+        positions = await self._graphql(
+            """
+            query One($user: String!) {
+              marketPositions(where: { chainId_in: [%d], userAddress_in: [$user] }) {
+                items {
+                  user { address }
+                  healthFactor
+                  priceVariationToLiquidationPrice
+                  state { borrowAssets borrowShares borrowAssetsUsd collateral collateralUsd }
+                  market {
+                    marketId lltv oracleAddress irmAddress
+                    loanAsset { address symbol decimals }
+                    collateralAsset { address symbol decimals }
+                  }
+                }
+              }
+            }
+            """
+            % MORPHO_CHAIN_ID,
+            {"user": user},
+        )
+        items = positions.get("marketPositions", {}).get("items", [])
+        for pos in items:
+            target = await self._to_target(pos, macro_active=macro_active)
+            if target is not None:
+                return target
+        return None
+
+    async def _to_target(self, pos: dict[str, Any], *, macro_active: bool = False) -> LiquidationTarget | None:
         market = pos.get("market", {})
         state = pos.get("state", {})
         user = pos.get("user", {}).get("address")
@@ -213,7 +244,7 @@ class MorphoScanner(ProtocolScanner):
         loan = market.get("loanAsset", {})
         coll = market.get("collateralAsset", {})
         debt_usd = float(state.get("borrowAssetsUsd") or 0)
-        if debt_usd < self.settings.min_profit_usd:
+        if debt_usd < effective_min_profit_usd(self.settings, hf, macro_active=macro_active):
             return None
 
         lltv = int(market.get("lltv") or 0)
@@ -241,7 +272,7 @@ class MorphoScanner(ProtocolScanner):
             debt_decimals=debt_decimals,
             flash_fee_bps=0,
         )
-        if profit < self.settings.min_profit_usd:
+        if profit < effective_min_profit_usd(self.settings, hf, macro_active=macro_active):
             return None
 
         morpho_contract = bool(self.settings.morpho_flash_liquidator_address)
@@ -262,7 +293,7 @@ class MorphoScanner(ProtocolScanner):
             debt_to_cover=debt_to_cover,
             debt_to_cover_human=debt_human,
             estimated_profit_usd=profit,
-            swap_fee=500,
+            swap_fee=resolve_swap_fee(coll.get("symbol", "?"), loan.get("symbol", "?")),
             flash_amount=debt_to_cover,
             liquidation_bonus_bps=bonus_bps,
             executable=self.executable and morpho_contract and borrow_shares > 0 and bool(oracle and irm),

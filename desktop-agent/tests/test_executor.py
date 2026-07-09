@@ -43,6 +43,13 @@ def test_contract_for_routes_by_protocol(settings, mock_wallet, aave_target, mor
     assert executor._contract_for(morpho_target) == settings.morpho_flash_liquidator_address
 
 
+def test_resolve_swap_fee_stable_pair():
+    from agent.profit_engine import resolve_swap_fee
+
+    assert resolve_swap_fee("USDC", "DAI") == 100
+    assert resolve_swap_fee("WETH", "USDC") == 500
+
+
 def test_encode_morpho_constructor_args():
     args = FlashLiquidationExecutor.encode_morpho_constructor_args(TEST_USER)
     assert len(args) > 0

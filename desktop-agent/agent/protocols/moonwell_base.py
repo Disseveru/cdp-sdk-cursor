@@ -73,6 +73,13 @@ COMPTROLLER_ABI = [
         "stateMutability": "view",
         "type": "function",
     },
+    {
+        "inputs": [],
+        "name": "oracle",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
 ]
 
 MTOKEN_ABI = [
@@ -124,6 +131,16 @@ MTOKEN_ABI = [
     },
 ]
 
+PRICE_ORACLE_ABI = [
+    {
+        "inputs": [{"internalType": "address", "name": "mToken", "type": "address"}],
+        "name": "getUnderlyingPrice",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
 ERC20_ABI = [
     {
         "inputs": [],
@@ -137,6 +154,34 @@ ERC20_ABI = [
         "name": "symbol",
         "outputs": [{"internalType": "string", "name": "", "type": "string"}],
         "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+MOONWELL_FLASH_LIQUIDATOR_ABI = [
+    {
+        "inputs": [
+            {"internalType": "address", "name": "debtAsset", "type": "address"},
+            {"internalType": "uint256", "name": "flashAmount", "type": "uint256"},
+            {
+                "components": [
+                    {"internalType": "address", "name": "mTokenBorrowed", "type": "address"},
+                    {"internalType": "address", "name": "mTokenCollateral", "type": "address"},
+                    {"internalType": "address", "name": "debtUnderlying", "type": "address"},
+                    {"internalType": "address", "name": "collateralUnderlying", "type": "address"},
+                    {"internalType": "address", "name": "borrower", "type": "address"},
+                    {"internalType": "uint256", "name": "repayAmount", "type": "uint256"},
+                    {"internalType": "uint24", "name": "swapFee", "type": "uint24"},
+                    {"internalType": "uint256", "name": "minAmountOut", "type": "uint256"},
+                ],
+                "internalType": "struct MoonwellFlashLiquidator.LiquidationParams",
+                "name": "params",
+                "type": "tuple",
+            },
+        ],
+        "name": "liquidate",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function",
     },
 ]

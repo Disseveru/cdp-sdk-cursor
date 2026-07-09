@@ -11,13 +11,16 @@ from typing import Any
 from web3 import Web3
 from web3.contract import Contract
 
-from agent.models import LiquidationTarget
+from agent.dynamic_profit import effective_min_profit_usd
+from agent.models import LiquidationTarget, WatchTarget
+from agent.profit_engine import estimate_profit_with_swap_quote, resolve_swap_fee
 from agent.protocols.base import ProtocolScanner
 from agent.protocols.moonwell_base import (
     COMPTROLLER_ABI,
     ERC20_ABI,
     MOONWELL_BASE,
     MTOKEN_ABI,
+    PRICE_ORACLE_ABI,
 )
 from config.settings import AgentSettings
 
@@ -29,7 +32,7 @@ MANTISSA = 10**18
 class MoonwellScanner(ProtocolScanner):
     protocol_id = "moonwell"
     display_name = "Moonwell"
-    executable = False
+    executable = True
 
     def __init__(self, settings: AgentSettings, w3: Web3) -> None:
         super().__init__(settings, w3)
@@ -42,6 +45,7 @@ class MoonwellScanner(ProtocolScanner):
         self._markets: list[dict[str, Any]] = []
         self._close_factor: float = 0.5
         self._liq_incentive_bps: int = 800
+        self._oracle: Contract | None = None
 
     def _cache_path(self) -> Path:
         return self.settings.borrower_cache_dir / f"{self.protocol_id}.json"
@@ -55,6 +59,16 @@ class MoonwellScanner(ProtocolScanner):
             self._liq_incentive_bps = int((incentive / MANTISSA - 1) * 10_000)
         except Exception:
             pass
+
+        if self._oracle is None:
+            try:
+                oracle_addr = self.comptroller.functions.oracle().call()
+                self._oracle = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(oracle_addr),
+                    abi=PRICE_ORACLE_ABI,
+                )
+            except Exception:
+                self._oracle = None
 
         market_addrs = list(MOONWELL_BASE["markets"].values())
         try:
@@ -154,6 +168,64 @@ class MoonwellScanner(ProtocolScanner):
                 start = end + 1
         return list(users)
 
+    async def evaluate_user(self, user: str, *, macro_active: bool = False) -> LiquidationTarget | None:
+        return await self._evaluate_user(user, macro_active=macro_active)
+
+    async def fetch_watch_positions(self, limit: int = 50) -> list[WatchTarget]:
+        """Borrowers with thin liquidity buffer (near liquidation, not yet underwater)."""
+        await self._load_markets()
+        borrowers = await self.discover_borrowers(limit=limit)
+        watches: list[WatchTarget] = []
+        for user in borrowers:
+            try:
+                _err, liquidity, shortfall = self.comptroller.functions.getAccountLiquidity(user).call()
+            except Exception:
+                continue
+            if shortfall > 0:
+                continue
+            liquidity_usd = liquidity / MANTISSA
+            if liquidity_usd <= 0:
+                continue
+            # Approximate HF from liquidity buffer vs borrow value (both in USD).
+            try:
+                total_borrow_usd = 0.0
+                for market in self._markets:
+                    borrow = market["contract"].functions.borrowBalanceStored(user).call()
+                    if borrow <= 0:
+                        continue
+                    if self._oracle is not None:
+                        price = self._oracle.functions.getUnderlyingPrice(market["mtoken"]).call()
+                        total_borrow_usd += borrow * price / MANTISSA
+                    else:
+                        total_borrow_usd += borrow / (10 ** market["decimals"])
+                if total_borrow_usd <= 0:
+                    continue
+                hf_proxy = 1.0 + (liquidity_usd / max(total_borrow_usd, 1e-9))
+            except Exception:
+                hf_proxy = 1.02
+            if hf_proxy >= self.settings.watch_hf_threshold or hf_proxy < 1.0:
+                continue
+            pair = await self._best_liquidation_pair(user)
+            if pair is None:
+                continue
+            borrow_market, collateral_market, _debt_raw = pair
+            watches.append(
+                WatchTarget(
+                    protocol_id=self.protocol_id,
+                    protocol_name=self.display_name,
+                    user=user,
+                    health_factor=hf_proxy,
+                    collateral_symbol=collateral_market["symbol"],
+                    debt_symbol=borrow_market["symbol"],
+                    debt_usd=total_borrow_usd,
+                    collateral_usd=liquidity_usd + total_borrow_usd,
+                    price_to_liquidation_pct=max(0.0, (hf_proxy - 1.0) * 100),
+                    market_id=borrow_market["mtoken"],
+                )
+            )
+        watches.sort(key=lambda w: w.health_factor)
+        return watches[:limit]
+
     async def scan(self, borrowers: list[str] | None = None) -> list[LiquidationTarget]:
         await self._load_markets()
         if borrowers is None:
@@ -168,7 +240,7 @@ class MoonwellScanner(ProtocolScanner):
         targets.sort(key=lambda t: t.estimated_profit_usd, reverse=True)
         return targets
 
-    async def _evaluate_user(self, user: str) -> LiquidationTarget | None:
+    async def _evaluate_user(self, user: str, *, macro_active: bool = False) -> LiquidationTarget | None:
         try:
             _err, liquidity, shortfall = self.comptroller.functions.getAccountLiquidity(
                 user
@@ -198,11 +270,32 @@ class MoonwellScanner(ProtocolScanner):
             return None
 
         bonus_bps = self._liq_incentive_bps
-        gross_profit_usd = (debt_to_cover / (10**debt_decimals)) * (1 + bonus_bps / 10_000) * 0.12
-        estimated_profit = gross_profit_usd - 0.5
 
-        if estimated_profit < self.settings.min_profit_usd:
+        est_collateral = int(
+            self.comptroller.functions.liquidateCalculateSeizeTokens(
+                borrow_market["mtoken"],
+                collateral_market["mtoken"],
+                debt_to_cover,
+            ).call()[1]
+        )
+
+        estimated_profit, _ = await estimate_profit_with_swap_quote(
+            self.settings,
+            collateral_asset=collateral_market["underlying"],
+            debt_asset=borrow_market["underlying"],
+            collateral_amount=max(est_collateral, 1),
+            debt_to_cover_human=debt_to_cover / (10**debt_decimals),
+            liquidation_bonus_bps=bonus_bps,
+            debt_decimals=debt_decimals,
+            flash_fee_bps=5,
+        )
+
+        min_profit = effective_min_profit_usd(self.settings, health_factor, macro_active=macro_active)
+        if estimated_profit < min_profit:
             return None
+
+        swap_fee = resolve_swap_fee(collateral_market["symbol"], borrow_market["symbol"])
+        moonwell_contract = bool(self.settings.moonwell_flash_liquidator_address)
 
         return LiquidationTarget(
             protocol_id=self.protocol_id,
@@ -218,10 +311,15 @@ class MoonwellScanner(ProtocolScanner):
             debt_to_cover=debt_to_cover,
             debt_to_cover_human=debt_to_cover / (10**debt_decimals),
             estimated_profit_usd=estimated_profit,
-            swap_fee=500,
+            swap_fee=swap_fee,
             flash_amount=debt_to_cover,
             liquidation_bonus_bps=bonus_bps,
-            executable=False,
+            executable=moonwell_contract,
+            debt_decimals=debt_decimals,
+            collateral_decimals=collateral_market["decimals"],
+            mtoken_borrowed=borrow_market["mtoken"],
+            mtoken_collateral=collateral_market["mtoken"],
+            estimated_collateral_amount=est_collateral,
         )
 
     async def _best_liquidation_pair(

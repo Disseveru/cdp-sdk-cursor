@@ -15,6 +15,8 @@ BASE_FEEDS: dict[str, str] = {
     "USDC/USD": "0x7e86009818bbEa3085006d0996aFFac6deDa3dF3",
 }
 
+CHAINLINK_FEEDS = BASE_FEEDS
+
 AGGREGATOR_ABI = [
     {
         "inputs": [],
@@ -46,11 +48,12 @@ class OracleMonitor:
     def __init__(self, w3: Web3) -> None:
         self.w3 = w3
         self._last_rounds: dict[str, int] = {}
+        self._last_prices: dict[str, float] = {}
 
     def poll_feeds(self) -> list[str]:
         """Return feed names that updated since last poll."""
         updated: list[str] = []
-        for name, addr in BASE_FEEDS.items():
+        for name, addr in CHAINLINK_FEEDS.items():
             try:
                 feed = self.w3.eth.contract(
                     address=Web3.to_checksum_address(addr), abi=AGGREGATOR_ABI
@@ -61,8 +64,28 @@ class OracleMonitor:
                 prev = self._last_rounds.get(name)
                 if prev is not None and round_id > prev:
                     updated.append(name)
+                    self._last_prices[name] = float(answer) / 1e8
                     logger.info("Oracle update: %s answer=%s round=%s", name, answer, round_id)
                 self._last_rounds[name] = int(round_id)
             except Exception as exc:
                 logger.debug("Feed poll %s failed: %s", name, exc)
         return updated
+
+    def note_external_update(self, feed_name: str) -> None:
+        """Record oracle update from Flashblocks WS without duplicate poll."""
+        if feed_name not in CHAINLINK_FEEDS:
+            feed_name = feed_name if feed_name in CHAINLINK_FEEDS else "ETH/USD"
+        if feed_name not in self._last_rounds:
+            self._last_rounds[feed_name] = 0
+        self._last_rounds[feed_name] += 1
+
+    def feeds_for_collateral(self, symbol: str) -> list[str]:
+        """Map collateral symbol to relevant oracle feeds for targeted rescans."""
+        sym = symbol.upper()
+        if sym in ("WETH", "ETH", "WSTETH", "CBETH"):
+            return ["ETH/USD"]
+        if sym in ("CBBTC", "WBTC", "BTC"):
+            return ["BTC/USD"]
+        if sym in ("USDC", "USDBC", "DAI", "EURC"):
+            return ["USDC/USD"]
+        return list(CHAINLINK_FEEDS.keys())
