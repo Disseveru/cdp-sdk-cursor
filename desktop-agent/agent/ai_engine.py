@@ -76,12 +76,16 @@ class LiquidationAIEngine:
 
         if self.settings.anthropic_api_key:
             llm_decision = await self._anthropic_decide(targets, macro_active=macro_active)
-            if llm_decision:
+            if llm_decision and self._llm_decision_allowed(
+                llm_decision, targets, macro_active=macro_active
+            ):
                 return llm_decision
 
         if self.settings.openai_api_key:
             llm_decision = await self._openai_decide(targets, macro_active=macro_active)
-            if llm_decision:
+            if llm_decision and self._llm_decision_allowed(
+                llm_decision, targets, macro_active=macro_active
+            ):
                 return llm_decision
 
         return self._rules_decide(targets, macro_active=macro_active)
@@ -98,8 +102,31 @@ class LiquidationAIEngine:
             and t.estimated_profit_usd
             >= effective_min_profit_usd(self.settings, t.health_factor, macro_active=macro_active)
         ]
-        best = executable[0] if executable else ranked[0]
         risk_flags: list[str] = []
+
+        if not executable:
+            best = ranked[0]
+            min_profit = effective_min_profit_usd(
+                self.settings, best.health_factor, macro_active=macro_active
+            )
+            risk_flags.append("below_min_profit_threshold")
+            if not best.executable:
+                risk_flags.append("monitor_only_no_executor")
+            return AgentDecision(
+                action="watch",
+                target_user=best.user,
+                protocol_id=best.protocol_id,
+                reasoning=(
+                    f"[{best.protocol_name}] HF={best.health_factor:.4f}, est. profit "
+                    f"${best.estimated_profit_usd:.2f} below effective minimum "
+                    f"${min_profit:.2f}; watching."
+                ),
+                risk_flags=risk_flags,
+                recommended_gas_strategy="cdp_paymaster",
+                source="rules",
+            )
+
+        best = executable[0]
 
         if not best.executable:
             risk_flags.append("monitor_only_no_executor")
@@ -140,6 +167,33 @@ class LiquidationAIEngine:
             recommended_gas_strategy="cdp_paymaster",
             source="rules",
         )
+
+    def _llm_decision_allowed(
+        self,
+        decision: AgentDecision,
+        targets: list[LiquidationTarget],
+        *,
+        macro_active: bool,
+    ) -> bool:
+        if decision.action != "execute":
+            return True
+
+        from agent.dynamic_profit import effective_min_profit_usd
+
+        matched: LiquidationTarget | None = None
+        for target in targets:
+            if decision.target_user and target.user.lower() == decision.target_user.lower():
+                if decision.protocol_id is None or target.protocol_id == decision.protocol_id:
+                    matched = target
+                    break
+
+        if matched is None:
+            return False
+
+        min_profit = effective_min_profit_usd(
+            self.settings, matched.health_factor, macro_active=macro_active
+        )
+        return matched.executable and matched.estimated_profit_usd >= min_profit
 
     def _targets_for_llm(
         self, targets: list[LiquidationTarget], *, macro_active: bool

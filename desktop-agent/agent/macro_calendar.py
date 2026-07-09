@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
+POST_EVENT_BUFFER_HOURS = 12
+
 
 @dataclass(frozen=True)
 class MacroEvent:
@@ -24,7 +26,7 @@ class MacroEvent:
         )
         start = noon - timedelta(hours=self.window_hours)
         # Post-event volatility persists longer than the pre-event buffer.
-        end = noon + timedelta(hours=self.window_hours + 12)
+        end = noon + timedelta(hours=self.window_hours + POST_EVENT_BUFFER_HOURS)
         return start <= now <= end
 
 
@@ -41,13 +43,12 @@ _MACRO_EVENTS_2026: list[MacroEvent] = [
     MacroEvent("FOMC", date(2026, 3, 18)),
     MacroEvent("US CPI", date(2026, 4, 10)),
     MacroEvent("US NFP", date(2026, 4, 3)),
-    MacroEvent("FOMC", date(2026, 4, 29)),
     MacroEvent("KelpDAO stress", date(2026, 4, 14), window_hours=72),
     MacroEvent("US CPI", date(2026, 5, 12)),
     MacroEvent("US NFP", date(2026, 5, 8)),
+    MacroEvent("FOMC", date(2026, 5, 6)),
     MacroEvent("US CPI", date(2026, 6, 10)),
     MacroEvent("US NFP", date(2026, 6, 5), window_hours=12),
-    MacroEvent("FOMC", date(2026, 6, 17)),
     MacroEvent("BTC cascade", date(2026, 6, 17), window_hours=72),
     MacroEvent("US CPI", date(2026, 7, 10)),
     MacroEvent("US NFP", date(2026, 7, 3)),
@@ -59,12 +60,12 @@ _MACRO_EVENTS_2026: list[MacroEvent] = [
     MacroEvent("FOMC", date(2026, 9, 16)),
     MacroEvent("US CPI", date(2026, 10, 13)),
     MacroEvent("US NFP", date(2026, 10, 2)),
-    MacroEvent("FOMC", date(2026, 10, 28)),
     MacroEvent("US CPI", date(2026, 11, 12)),
     MacroEvent("US NFP", date(2026, 11, 6)),
+    MacroEvent("FOMC", date(2026, 11, 4)),
     MacroEvent("US CPI", date(2026, 12, 10)),
     MacroEvent("US NFP", date(2026, 12, 4)),
-    MacroEvent("FOMC", date(2026, 12, 9)),
+    MacroEvent("FOMC", date(2026, 12, 16)),
 ]
 
 
