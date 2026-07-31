@@ -11,7 +11,11 @@ from web3 import Web3
 from agent.cdp_wallet import CdpWalletManager
 from agent.gas_strategy import compute_gas_bid
 from agent.protocols.aave_v3_base import FLASH_LIQUIDATOR_ABI, UNISWAP_V3_SWAP_ROUTER_BASE, get_aave_addresses
-from agent.protocols.moonwell_base import MOONWELL_FLASH_LIQUIDATOR_ABI
+from agent.protocols.moonwell_base import (
+    MOONWELL_BASE,
+    MOONWELL_FLASH_LIQUIDATOR_ABI,
+    MOONWELL_OEV_FLASH_LIQUIDATOR_ABI,
+)
 from agent.protocols.morpho_base import MORPHO_FLASH_LIQUIDATOR_ABI, MORPHO_BLUE_BASE
 from agent.models import LiquidationTarget
 from config.settings import AgentSettings
@@ -52,6 +56,14 @@ class FlashLiquidationExecutor:
             )
         return Web3.to_checksum_address(self.settings.moonwell_flash_liquidator_address)
 
+    def _require_moonwell_oev_contract(self) -> str:
+        if not self.settings.moonwell_oev_flash_liquidator_address:
+            raise ValueError(
+                "MOONWELL_OEV_FLASH_LIQUIDATOR_ADDRESS is not set. "
+                "Deploy via scripts/deploy_contract.py --moonwell-oev"
+            )
+        return Web3.to_checksum_address(self.settings.moonwell_oev_flash_liquidator_address)
+
     def _require_aave_contract(self) -> str:
         if not self.settings.flash_liquidator_address:
             raise ValueError(
@@ -70,6 +82,8 @@ class FlashLiquidationExecutor:
         if target.protocol_id == "morpho":
             return self._require_morpho_contract()
         if target.protocol_id == "moonwell":
+            if target.use_oev_path:
+                return self._require_moonwell_oev_contract()
             return self._require_moonwell_contract()
         if target.protocol_id == "aave-v3":
             return self._require_aave_contract()
@@ -79,6 +93,8 @@ class FlashLiquidationExecutor:
         if target.protocol_id == "morpho":
             return self._encode_morpho_call(target)
         if target.protocol_id == "moonwell":
+            if target.use_oev_path:
+                return self._encode_moonwell_oev_call(target)
             return self._encode_moonwell_call(target)
         return self._encode_aave_call(target)
 
@@ -153,6 +169,33 @@ class FlashLiquidationExecutor:
             min_out,
         )
         fn = contract.functions.liquidate(
+            Web3.to_checksum_address(target.debt_asset),
+            target.flash_amount,
+            params,
+        )
+        return fn._encode_transaction_data()
+
+    def _encode_moonwell_oev_call(self, target: LiquidationTarget) -> str:
+        if not target.mtoken_borrowed or not target.mtoken_collateral or not target.oev_wrapper:
+            raise ValueError("Moonwell OEV target missing mToken or OEV wrapper addresses")
+
+        contract = self.wallet.bundle.w3.eth.contract(
+            address=self._require_moonwell_oev_contract(),
+            abi=MOONWELL_OEV_FLASH_LIQUIDATOR_ABI,
+        )
+        min_out = self._min_swap_out(target)
+        params = (
+            Web3.to_checksum_address(target.oev_wrapper),
+            Web3.to_checksum_address(target.mtoken_borrowed),
+            Web3.to_checksum_address(target.mtoken_collateral),
+            Web3.to_checksum_address(target.debt_asset),
+            Web3.to_checksum_address(target.collateral_asset),
+            Web3.to_checksum_address(target.user),
+            target.debt_to_cover,
+            target.swap_fee,
+            min_out,
+        )
+        fn = contract.functions.liquidateOEV(
             Web3.to_checksum_address(target.debt_asset),
             target.flash_amount,
             params,

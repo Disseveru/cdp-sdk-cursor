@@ -296,6 +296,13 @@ class MoonwellScanner(ProtocolScanner):
 
         swap_fee = resolve_swap_fee(collateral_market["symbol"], borrow_market["symbol"])
         moonwell_contract = bool(self.settings.moonwell_flash_liquidator_address)
+        oev_wrapper = MOONWELL_BASE["oev_wrappers"].get(collateral_market["symbol"].upper(), "")
+        use_oev = bool(
+            oev_wrapper
+            and self.settings.moonwell_oev_flash_liquidator_address
+            and collateral_market["symbol"].upper() == "WETH"
+        )
+        executable = moonwell_contract or use_oev
 
         return LiquidationTarget(
             protocol_id=self.protocol_id,
@@ -314,12 +321,14 @@ class MoonwellScanner(ProtocolScanner):
             swap_fee=swap_fee,
             flash_amount=debt_to_cover,
             liquidation_bonus_bps=bonus_bps,
-            executable=moonwell_contract,
+            executable=executable,
             debt_decimals=debt_decimals,
             collateral_decimals=collateral_market["decimals"],
             mtoken_borrowed=borrow_market["mtoken"],
             mtoken_collateral=collateral_market["mtoken"],
             estimated_collateral_amount=est_collateral,
+            use_oev_path=use_oev,
+            oev_wrapper=oev_wrapper,
         )
 
     async def _best_liquidation_pair(

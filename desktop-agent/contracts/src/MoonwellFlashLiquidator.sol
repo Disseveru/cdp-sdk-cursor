@@ -49,6 +49,7 @@ contract MoonwellFlashLiquidator is IFlashLoanSimpleReceiver, Ownable, Reentranc
 
     IPool public immutable POOL;
     ISwapRouter02 public immutable SWAP_ROUTER;
+    IPoolAddressesProvider public immutable ADDRESSES_PROVIDER;
 
     event MoonwellLiquidationExecuted(
         address indexed borrower,
@@ -64,7 +65,8 @@ contract MoonwellFlashLiquidator is IFlashLoanSimpleReceiver, Ownable, Reentranc
     error SwapFailed();
 
     constructor(address addressesProvider, address swapRouter, address owner_) Ownable(owner_) {
-        POOL = IPool(IPoolAddressesProvider(addressesProvider).getPool());
+        ADDRESSES_PROVIDER = IPoolAddressesProvider(addressesProvider);
+        POOL = IPool(ADDRESSES_PROVIDER.getPool());
         SWAP_ROUTER = ISwapRouter02(swapRouter);
     }
 

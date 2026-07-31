@@ -4,6 +4,10 @@ from __future__ import annotations
 
 MOONWELL_BASE = {
     "comptroller": "0xfBb21d0380beE3312B33c4353c8936a0F13EF26C",
+    "oev_wrappers": {
+        # ChainlinkOEVWrapper per collateral feed (Base mainnet)
+        "WETH": "0xeb083d234ec636A10325ea42bCbbE09Aa56d1547",
+    },
     "markets": {
         "mUSDC": "0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22",
         "mWETH": "0x628ff693426583D9a7FB391E54366292F509D457",
@@ -119,6 +123,13 @@ MTOKEN_ABI = [
         "type": "function",
     },
     {
+        "inputs": [{"internalType": "uint256", "name": "redeemTokens", "type": "uint256"}],
+        "name": "redeem",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
         "anonymous": False,
         "inputs": [
             {"indexed": True, "internalType": "address", "name": "borrower", "type": "address"},
@@ -180,6 +191,35 @@ MOONWELL_FLASH_LIQUIDATOR_ABI = [
             },
         ],
         "name": "liquidate",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+]
+
+MOONWELL_OEV_FLASH_LIQUIDATOR_ABI = [
+    {
+        "inputs": [
+            {"internalType": "address", "name": "debtAsset", "type": "address"},
+            {"internalType": "uint256", "name": "flashAmount", "type": "uint256"},
+            {
+                "components": [
+                    {"internalType": "address", "name": "oevWrapper", "type": "address"},
+                    {"internalType": "address", "name": "mTokenBorrowed", "type": "address"},
+                    {"internalType": "address", "name": "mTokenCollateral", "type": "address"},
+                    {"internalType": "address", "name": "debtUnderlying", "type": "address"},
+                    {"internalType": "address", "name": "collateralUnderlying", "type": "address"},
+                    {"internalType": "address", "name": "borrower", "type": "address"},
+                    {"internalType": "uint256", "name": "repayAmount", "type": "uint256"},
+                    {"internalType": "uint24", "name": "swapFee", "type": "uint24"},
+                    {"internalType": "uint256", "name": "minAmountOut", "type": "uint256"},
+                ],
+                "internalType": "struct MoonwellOEVFlashLiquidator.OEVLiquidationParams",
+                "name": "params",
+                "type": "tuple",
+            },
+        ],
+        "name": "liquidateOEV",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function",

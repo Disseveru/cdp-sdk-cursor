@@ -7,7 +7,7 @@ from eth_utils import is_hex
 
 from agent.executor import FlashLiquidationExecutor
 from agent.protocols.morpho_base import MORPHO_BLUE_BASE
-from tests.conftest import TEST_USER
+from tests.conftest import MOONWELL_OEV_FL, TEST_USER
 
 
 def test_min_swap_out_includes_buffer(morpho_target):
@@ -41,6 +41,14 @@ def test_contract_for_routes_by_protocol(settings, mock_wallet, aave_target, mor
     executor = FlashLiquidationExecutor(settings, mock_wallet)
     assert executor._contract_for(aave_target) == settings.flash_liquidator_address
     assert executor._contract_for(morpho_target) == settings.morpho_flash_liquidator_address
+
+
+def test_encode_moonwell_oev_liquidate_call(settings, mock_wallet, moonwell_oev_target):
+    object.__setattr__(settings, "moonwell_oev_flash_liquidator_address", MOONWELL_OEV_FL)
+    executor = FlashLiquidationExecutor(settings, mock_wallet)
+    data = executor.encode_liquidate_call(moonwell_oev_target)
+    assert is_hex(data)
+    assert executor._contract_for(moonwell_oev_target) == MOONWELL_OEV_FL
 
 
 def test_resolve_swap_fee_stable_pair():
